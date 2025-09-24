@@ -13,20 +13,30 @@ app.use(express.json());
 app.use(express.static('public'));
 
 // MongoDB setup
+const { MongoClient } = require('mongodb');
+
 const mongoUri = process.env.MONGODB_URI;
-const client = new MongoClient(mongoUri);
+
+const client = new MongoClient(mongoUri, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    tls: true,
+    tlsAllowInvalidCertificates: false
+});
+
 let songsCollection;
 
 async function connectToMongo() {
     try {
         await client.connect();
-        const db = client.db('musicapp');
+        const db = client.db('musicapp'); // o el nombre que tengas en el URI
         songsCollection = db.collection('songs');
         console.log('🟢 Conectado a MongoDB');
     } catch (err) {
         console.error('❌ Error conectando a MongoDB:', err);
     }
 }
+
 connectToMongo();
 
 // Endpoint para recibir callbacks de Suno API
