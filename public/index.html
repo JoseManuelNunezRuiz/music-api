@@ -599,7 +599,7 @@
                     if (statusResponse.ok) {
                         const songData = await statusResponse.json();
                         
-                        if (songData.status === 'completed') {
+                        if (songData.status === 'complete') {
                             clearInterval(pollInterval);
                             showStatus('¡Canción generada con éxito!');
                             displaySong(songData);
