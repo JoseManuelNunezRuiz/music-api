@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 3000;
 
 // Inicializa cliente Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_ANON_KEY;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Middleware
@@ -44,23 +44,29 @@ app.post('/callback', async (req, res) => {
         const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
         // Insertar o actualizar canción en Supabase
-        const { error } = await supabase
-            .from('songs')
-            .upsert({
-                id,
-                status,
-                audio_url,
-                title,
-                expires_at: expiresAt.toISOString(),
-                created_at: new Date().toISOString()
-            });
+        // Solo guardar si audio_url está presente y no vacío
+        if (audio_url && audio_url.trim() !== '') {
+            const { error } = await supabase
+                .from('songs')
+                .upsert({
+                    id,
+                    status,
+                    audio_url,
+                    title,
+                    expires_at: expiresAt.toISOString(),
+                    created_at: new Date().toISOString()
+                });
 
-        if (error) {
-            console.error('Error guardando canción en Supabase:', error);
-            return res.status(500).json({ error: 'Error guardando canción' });
+            if (error) {
+                console.error('❌ Error guardando canción en Supabase:', error);
+                return res.status(500).json({ error: 'Error guardando canción' });
+            }
+
+            console.log(`🎵 Canción ${id} guardada con estado: ${status}`);
+        } else {
+            console.warn(`⚠️ No se guardó la canción ${id} porque audio_url está vacío en status: ${status}`);
         }
 
-        console.log(`🎵 Canción ${id} guardada con estado: ${status}`);
 
         res.status(200).json({ success: true, message: 'Callback procesado' });
     } catch (error) {
