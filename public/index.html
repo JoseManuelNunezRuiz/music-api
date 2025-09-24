@@ -399,7 +399,7 @@
         // Configuración de la API - CORREGIDA
         const API_CONFIG = {
             baseUrl: 'https://api.sunoapi.org/api/v1',
-            apiKey: '399ba18a2ddb0b2402c1df08b5de78a4',
+            apiKey: 'a12f3a1429874de20885053c1b89a03d',
             callbackUrl: 'https://musicapi-6gjf.onrender.com/callback'
         };
 
@@ -515,7 +515,7 @@
                         instrumental: document.getElementById('instrumental').checked,
                         model: "V3_5", // Modelo por defecto
                         vocalGender: "m", // Por defecto masculino
-                        callBackUrl: API_CONFIG.callbackUrl
+                        callbackUrl: API_CONFIG.callbackUrl
                     };
                 } else {
                     // Modo Personalizado
@@ -528,7 +528,7 @@
                         model: "V3_5",
                         negativeTags: negativeStyle.value || "",
                         vocalGender: document.getElementById('voice-gender').value === 'male' ? 'm' : 'f',
-                        callBackUrl: API_CONFIG.callbackUrl
+                        callbackUrl: API_CONFIG.callbackUrl
                     };
 
                     // Si hay letra personalizada, añadirla
@@ -587,7 +587,7 @@
         // Polling para verificar estado de la canción
         async function startPolling(songId) {
             let attempts = 0;
-            const maxAttempts = 60; // 5 minutos (5 segundos × 60)
+            const maxAttempts = 12; // 5 minutos (25 segundos × 12)
             
             const pollInterval = setInterval(async () => {
                 attempts++;
@@ -629,7 +629,7 @@
                         resetGenerateButton();
                     }
                 }
-            }, 25000); // Poll cada 5 segundos
+            }, 25000); // Poll cada 25 segundos
         }
 
         // Funciones auxiliares

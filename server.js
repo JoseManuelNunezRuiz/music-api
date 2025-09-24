@@ -17,42 +17,50 @@ let songsDatabase = new Map();
 app.post('/callback', async (req, res) => {
     try {
         console.log('Callback recibido:', req.body);
-        
-        const {
-            taskId,
-            id = taskId, // usar taskId como fallback si id no viene
-            status,
-            audio_url,
-            title,
-            video_url,
-            image_url,
-            model_name,
-            metadata
-        } = req.body;        
-        
-        if (!id) {
-            return res.status(400).json({ error: 'ID requerido' });
+
+        const { code, data, msg } = req.body;
+
+        if (!data || !data.task_id) {
+            return res.status(400).json({ error: 'task_id es requerido en callback' });
         }
-        
-        // Calcular fecha de expiración (48 horas desde ahora)
+
+        const id = data.task_id || data.taskId;
+
+        // Aquí puede que el status y otros datos también estén dentro de data o dentro de data.data
+        // Dependiendo del callbackType, puede variar, por eso haz console.log para confirmar.
+
+        const status = data.status || data.callbackType || 'unknown';  // ajusta según necesites
+        // Asumiendo que el audio_url y otros detalles están en data.data (segundo data)
+        // Ejemplo: data.data = [ {...}, {...} ]
+
+        // Extraer URLs si existen (esto depende de cómo te envíe la API los datos)
+        // Puedes hacer un chequeo de consola para validar:
+        console.log('Contenido data.data:', data.data);
+
+        // Extraer audio_url, title, etc. si vienen en data.data (que es un array)
+        let audio_url = null;
+        let title = 'Mi Canción';
+
+        if (Array.isArray(data.data) && data.data.length > 0) {
+            // Por ejemplo, si data.data[0] tiene el audio_url:
+            audio_url = data.data[0].audio_url || null;
+            title = data.data[0].title || title;
+        }
+
         const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
-        
-        // Guardar canción en la base de datos
+
+        // Guardar canción en base de datos
         songsDatabase.set(id, {
             id,
             status,
             audio_url,
-            title: title || 'Mi Canción',
-            video_url,
-            image_url,
-            model_name,
-            metadata,
+            title,
             expires_at: expiresAt.toISOString(),
             created_at: new Date().toISOString()
         });
-        
+
         console.log(`Canción ${id} guardada con estado: ${status}`);
-        
+
         res.status(200).json({ success: true, message: 'Callback procesado' });
     } catch (error) {
         console.error('Error procesando callback:', error);
