@@ -1,40 +1,21 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const { MongoClient } = require('mongodb');
+const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Inicializa cliente Supabase
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
+
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
-
-const mongoUri = process.env.MONGODB_URI;
-
-const client = new MongoClient(mongoUri, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-    tls: true,
-    tlsAllowInvalidCertificates: false
-});
-
-let songsCollection;
-
-async function connectToMongo() {
-    try {
-        await client.connect();
-        const db = client.db('musicapp'); // o el nombre que tengas en el URI
-        songsCollection = db.collection('songs');
-        console.log('🟢 Conectado a MongoDB');
-    } catch (err) {
-        console.error('❌ Error conectando a MongoDB:', err);
-    }
-}
-
-connectToMongo();
 
 // Endpoint para recibir callbacks de Suno API
 app.post('/callback', async (req, res) => {
@@ -62,20 +43,22 @@ app.post('/callback', async (req, res) => {
 
         const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
-        const songData = {
-            id,
-            status,
-            audio_url,
-            title,
-            expires_at: expiresAt.toISOString(),
-            created_at: new Date().toISOString()
-        };
+        // Insertar o actualizar canción en Supabase
+        const { error } = await supabase
+            .from('songs')
+            .upsert({
+                id,
+                status,
+                audio_url,
+                title,
+                expires_at: expiresAt.toISOString(),
+                created_at: new Date().toISOString()
+            });
 
-        await songsCollection.updateOne(
-            { id },
-            { $set: songData },
-            { upsert: true }
-        );
+        if (error) {
+            console.error('Error guardando canción en Supabase:', error);
+            return res.status(500).json({ error: 'Error guardando canción' });
+        }
 
         console.log(`🎵 Canción ${id} guardada con estado: ${status}`);
 
@@ -90,14 +73,18 @@ app.post('/callback', async (req, res) => {
 app.get('/song/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const song = await songsCollection.findOne({ id });
+        const { data: song, error } = await supabase
+            .from('songs')
+            .select('*')
+            .eq('id', id)
+            .single();
 
-        if (!song) {
+        if (error) {
             return res.status(404).json({ error: 'Canción no encontrada' });
         }
 
         if (new Date(song.expires_at) < new Date()) {
-            await songsCollection.deleteOne({ id });
+            await supabase.from('songs').delete().eq('id', id);
             return res.status(404).json({ error: 'La canción ha expirado' });
         }
 
@@ -108,10 +95,13 @@ app.get('/song/:id', async (req, res) => {
     }
 });
 
-// Endpoint para listar todas las canciones (útil para debugging)
+// Endpoint para listar todas las canciones (debug)
 app.get('/songs', async (req, res) => {
     try {
-        const songs = await songsCollection.find().toArray();
+        const { data: songs, error } = await supabase.from('songs').select('*');
+        if (error) {
+            return res.status(500).json({ error: 'Error listando canciones' });
+        }
         res.json({
             count: songs.length,
             songs: songs
@@ -122,22 +112,29 @@ app.get('/songs', async (req, res) => {
     }
 });
 
-// Endpoint para servir el frontend
+// Servir frontend
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // Limpiar canciones expiradas periódicamente
 setInterval(async () => {
-    const now = new Date().toISOString();
-    const result = await songsCollection.deleteMany({
-        expires_at: { $lt: now }
-    });
+    try {
+        const now = new Date().toISOString();
+        const { error } = await supabase
+            .from('songs')
+            .delete()
+            .lt('expires_at', now);
 
-    if (result.deletedCount > 0) {
-        console.log(`🧹 Eliminadas ${result.deletedCount} canciones expiradas`);
+        if (!error) {
+            console.log('🧹 Canciones expiradas eliminadas');
+        } else {
+            console.error('Error eliminando canciones expiradas:', error);
+        }
+    } catch (e) {
+        console.error('Error en limpieza periódica:', e);
     }
-}, 60 * 60 * 1000); // Ejecutar cada hora
+}, 60 * 60 * 1000); // Cada hora
 
 app.listen(PORT, () => {
     console.log(`Servidor ejecutándose en puerto ${PORT}`);
