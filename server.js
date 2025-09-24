@@ -18,7 +18,17 @@ app.post('/callback', async (req, res) => {
     try {
         console.log('Callback recibido:', req.body);
         
-        const { id, status, audio_url, title, video_url, image_url, model_name, metadata } = req.body;
+        const {
+            taskId,
+            id = taskId, // usar taskId como fallback si id no viene
+            status,
+            audio_url,
+            title,
+            video_url,
+            image_url,
+            model_name,
+            metadata
+        } = req.body;        
         
         if (!id) {
             return res.status(400).json({ error: 'ID requerido' });
