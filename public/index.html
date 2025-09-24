@@ -396,9 +396,9 @@
     </div>
 
     <script>
-        // Configuración de la API
+        // Configuración de la API - CORREGIDA
         const API_CONFIG = {
-            baseUrl: 'https://api.sunoapi.org',
+            baseUrl: 'https://api.sunoapi.org/api/v1',
             apiKey: '399ba18a2ddb0b2402c1df08b5de78a4',
             callbackUrl: 'https://musicapi-6gjf.onrender.com/callback'
         };
@@ -471,7 +471,7 @@
             simpleForm.style.display = 'none';
         });
 
-        // Generar canción
+        // Generar canción - CORREGIDO
         generateBtn.addEventListener('click', async () => {
             // Validar formulario
             if (simpleModeBtn.classList.contains('active')) {
@@ -502,37 +502,50 @@
             showStatus('Solicitando generación de canción...');
 
             try {
-                // Preparar datos para la API
+                // Preparar datos para la API - CORREGIDO según el formato de Suno API
                 let requestData = {};
-                let endpoint = '';
                 
                 if (simpleModeBtn.classList.contains('active')) {
+                    // Modo Simple
                     requestData = {
                         prompt: simplePrompt.value,
+                        style: "Various", // Estilo por defecto para modo simple
+                        title: "Canción Generada",
+                        customMode: false,
                         instrumental: document.getElementById('instrumental').checked,
-                        make_instrumental: document.getElementById('instrumental').checked,
-                        wait_audio: false
+                        model: "V3_5", // Modelo por defecto
+                        vocalGender: "m", // Por defecto masculino
+                        callBackUrl: API_CONFIG.callbackUrl
                     };
-                    endpoint = '/generate/simple';
                 } else {
+                    // Modo Personalizado
                     requestData = {
                         prompt: styleDescription.value,
-                        tags: styleDescription.value,
+                        style: styleDescription.value.split(',')[0] || "Various", // Tomar primer estilo
                         title: songTitle.value,
-                        lyrics: customLyrics.value,
-                        negative_tags: negativeStyle.value || '',
-                        vocal_gender: document.getElementById('voice-gender').value,
-                        make_instrumental: false,
-                        wait_audio: false
+                        customMode: true,
+                        instrumental: false, // En modo personalizado siempre con letra
+                        model: "V3_5",
+                        negativeTags: negativeStyle.value || "",
+                        vocalGender: document.getElementById('voice-gender').value === 'male' ? 'm' : 'f',
+                        callBackUrl: API_CONFIG.callbackUrl
                     };
-                    endpoint = '/generate/custom';
+
+                    // Si hay letra personalizada, añadirla
+                    if (customLyrics.value.trim()) {
+                        requestData.lyrics = customLyrics.value;
+                    }
                 }
 
-                // Añadir callback URL
-                requestData.callback_url = API_CONFIG.callbackUrl;
+                // Añadir parámetros opcionales con valores por defecto
+                requestData.styleWeight = 0.65;
+                requestData.weirdnessConstraint = 0.65;
+                requestData.audioWeight = 0.65;
 
-                // Llamar a la API Suno
-                const response = await fetch(`${API_CONFIG.baseUrl}${endpoint}`, {
+                console.log('Enviando datos a la API:', requestData);
+
+                // Llamar a la API Suno - CORREGIDO endpoint
+                const response = await fetch(`${API_CONFIG.baseUrl}/generate`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -542,11 +555,13 @@
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.detail || `Error ${response.status}: ${response.statusText}`);
+                    const errorText = await response.text();
+                    console.error('Error response:', errorText);
+                    throw new Error(`Error ${response.status}: ${response.statusText}`);
                 }
 
                 const result = await response.json();
+                console.log('Respuesta de la API:', result);
                 
                 if (result.id) {
                     showStatus('Canción en proceso de generación. Te notificaremos cuando esté lista.');
@@ -648,14 +663,16 @@
             const songHTML = `
                 <div class="song-card">
                     <h3 class="song-title">${song.title || 'Mi Canción'}</h3>
-                    <audio controls class="audio-player">
-                        <source src="${song.audio_url}" type="audio/mpeg">
-                        Tu navegador no soporta el elemento de audio.
-                    </audio>
-                    <div class="download-section">
-                        <a href="${song.download_url || song.audio_url}" class="download-link" download>Descargar canción</a>
-                        <span class="expiry">Disponible por ${hoursLeft} horas más</span>
-                    </div>
+                    ${song.audio_url ? `
+                        <audio controls class="audio-player">
+                            <source src="${song.audio_url}" type="audio/mpeg">
+                            Tu navegador no soporta el elemento de audio.
+                        </audio>
+                        <div class="download-section">
+                            <a href="${song.audio_url}" class="download-link" download="${song.title || 'cancion'}.mp3">Descargar canción</a>
+                            <span class="expiry">Disponible por ${hoursLeft} horas más</span>
+                        </div>
+                    ` : '<p>Audio no disponible aún</p>'}
                 </div>
             `;
             
