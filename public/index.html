@@ -563,16 +563,14 @@
                 const result = await response.json();
                 console.log('Respuesta de la API:', result);
                 
-                if (result.id) {
+                const taskId = result?.task_id || result?.data?.task_id;
+
+                if (taskId) {
                     showStatus('Canción en proceso de generación. Te notificaremos cuando esté lista.');
-                    
-                    // Guardar ID para verificar estado posteriormente
-                    localStorage.setItem('lastSongId', result.id);
-                    
-                    // Iniciar polling para verificar estado
-                    startPolling(result.id);
+                    localStorage.setItem('lastSongId', taskId);
+                    startPolling(taskId);
                 } else {
-                    throw new Error('No se recibió un ID válido de la API');
+                    throw new Error('No se recibió un task_id válido de la API');
                 }
                 
             } catch (error) {
