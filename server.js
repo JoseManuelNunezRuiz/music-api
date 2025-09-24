@@ -1,6 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const { MongoClient } = require('mongodb');
+require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -10,8 +12,22 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-// Base de datos en memoria (en producción usarías una base de datos real)
-let songsDatabase = new Map();
+// MongoDB setup
+const mongoUri = process.env.MONGODB_URI;
+const client = new MongoClient(mongoUri);
+let songsCollection;
+
+async function connectToMongo() {
+    try {
+        await client.connect();
+        const db = client.db('musicapp');
+        songsCollection = db.collection('songs');
+        console.log('🟢 Conectado a MongoDB');
+    } catch (err) {
+        console.error('❌ Error conectando a MongoDB:', err);
+    }
+}
+connectToMongo();
 
 // Endpoint para recibir callbacks de Suno API
 app.post('/callback', async (req, res) => {
@@ -25,41 +41,36 @@ app.post('/callback', async (req, res) => {
         }
 
         const id = data.task_id || data.taskId;
+        const status = data.status || data.callbackType || 'unknown';
 
-        // Aquí puede que el status y otros datos también estén dentro de data o dentro de data.data
-        // Dependiendo del callbackType, puede variar, por eso haz console.log para confirmar.
-
-        const status = data.status || data.callbackType || 'unknown';  // ajusta según necesites
-        // Asumiendo que el audio_url y otros detalles están en data.data (segundo data)
-        // Ejemplo: data.data = [ {...}, {...} ]
-
-        // Extraer URLs si existen (esto depende de cómo te envíe la API los datos)
-        // Puedes hacer un chequeo de consola para validar:
         console.log('Contenido data.data:', data.data);
 
-        // Extraer audio_url, title, etc. si vienen en data.data (que es un array)
         let audio_url = null;
         let title = 'Mi Canción';
 
         if (Array.isArray(data.data) && data.data.length > 0) {
-            // Por ejemplo, si data.data[0] tiene el audio_url:
             audio_url = data.data[0].audio_url || null;
             title = data.data[0].title || title;
         }
 
         const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
-        // Guardar canción en base de datos
-        songsDatabase.set(id, {
+        const songData = {
             id,
             status,
             audio_url,
             title,
             expires_at: expiresAt.toISOString(),
             created_at: new Date().toISOString()
-        });
+        };
 
-        console.log(`Canción ${id} guardada con estado: ${status}`);
+        await songsCollection.updateOne(
+            { id },
+            { $set: songData },
+            { upsert: true }
+        );
+
+        console.log(`🎵 Canción ${id} guardada con estado: ${status}`);
 
         res.status(200).json({ success: true, message: 'Callback procesado' });
     } catch (error) {
@@ -69,21 +80,20 @@ app.post('/callback', async (req, res) => {
 });
 
 // Endpoint para consultar estado de una canción
-app.get('/song/:id', (req, res) => {
+app.get('/song/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const song = songsDatabase.get(id);
-        
+        const song = await songsCollection.findOne({ id });
+
         if (!song) {
             return res.status(404).json({ error: 'Canción no encontrada' });
         }
-        
-        // Verificar si ha expirado
+
         if (new Date(song.expires_at) < new Date()) {
-            songsDatabase.delete(id);
+            await songsCollection.deleteOne({ id });
             return res.status(404).json({ error: 'La canción ha expirado' });
         }
-        
+
         res.json(song);
     } catch (error) {
         console.error('Error obteniendo canción:', error);
@@ -92,9 +102,9 @@ app.get('/song/:id', (req, res) => {
 });
 
 // Endpoint para listar todas las canciones (útil para debugging)
-app.get('/songs', (req, res) => {
+app.get('/songs', async (req, res) => {
     try {
-        const songs = Array.from(songsDatabase.values());
+        const songs = await songsCollection.find().toArray();
         res.json({
             count: songs.length,
             songs: songs
@@ -111,19 +121,14 @@ app.get('/', (req, res) => {
 });
 
 // Limpiar canciones expiradas periódicamente
-setInterval(() => {
-    const now = new Date();
-    let expiredCount = 0;
-    
-    for (const [id, song] of songsDatabase.entries()) {
-        if (new Date(song.expires_at) < now) {
-            songsDatabase.delete(id);
-            expiredCount++;
-        }
-    }
-    
-    if (expiredCount > 0) {
-        console.log(`Eliminadas ${expiredCount} canciones expiradas`);
+setInterval(async () => {
+    const now = new Date().toISOString();
+    const result = await songsCollection.deleteMany({
+        expires_at: { $lt: now }
+    });
+
+    if (result.deletedCount > 0) {
+        console.log(`🧹 Eliminadas ${result.deletedCount} canciones expiradas`);
     }
 }, 60 * 60 * 1000); // Ejecutar cada hora
 
