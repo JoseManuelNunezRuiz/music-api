@@ -12,9 +12,6 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-// MongoDB setup
-const { MongoClient } = require('mongodb');
-
 const mongoUri = process.env.MONGODB_URI;
 
 const client = new MongoClient(mongoUri, {
