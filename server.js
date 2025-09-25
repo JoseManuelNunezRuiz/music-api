@@ -67,7 +67,6 @@ app.post('/callback', async (req, res) => {
             console.warn(`⚠️ No se guardó la canción ${id} porque audio_url está vacío en status: ${status}`);
         }
 
-
         res.status(200).json({ success: true, message: 'Callback procesado' });
     } catch (error) {
         console.error('Error procesando callback:', error);
@@ -141,6 +140,17 @@ setInterval(async () => {
         console.error('Error en limpieza periódica:', e);
     }
 }, 60 * 60 * 1000); // Cada hora
+
+app.get('/config.js', (req, res) => {
+    const config = {
+        baseUrl: process.env.BASE_URL,
+        apiKey: process.env.API_KEY,
+        callbackUrl: process.env.CALLBACK_URL
+    };
+
+    res.setHeader('Content-Type', 'application/javascript');
+    res.send(`const API_CONFIG = ${JSON.stringify(config)};`);
+});
 
 app.listen(PORT, () => {
     console.log(`Servidor ejecutándose en puerto ${PORT}`);
