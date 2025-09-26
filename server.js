@@ -2,10 +2,16 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
+const mercadopago = require('mercadopago');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Configurar MercadoPago
+mercadopago.configure({
+    access_token: process.env.MP_ACCESS_TOKEN
+  });
 
 // Inicializa cliente Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -54,7 +60,8 @@ app.post('/callback', async (req, res) => {
                     audio_url,
                     title,
                     expires_at: expiresAt.toISOString(),
-                    created_at: new Date().toISOString()
+                    created_at: new Date().toISOString(),
+                    payment_status: 'pending' // 👈 Agregado aquí
                 });
 
             if (error) {
@@ -117,11 +124,6 @@ app.get('/songs', async (req, res) => {
     }
 });
 
-// Servir frontend
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
 // Limpiar canciones expiradas periódicamente
 setInterval(async () => {
     try {
@@ -141,6 +143,111 @@ setInterval(async () => {
     }
 }, 60 * 60 * 1000); // Cada hora
 
+// Nuevo: endpoint para crear preferencia de pago
+app.post('/create_preference', async (req, res) => {
+    try {
+        // Esperamos que el frontend envíe al menos los datos mínimos
+        // para crear la preferencia (por ejemplo monto, descripción, etc.).
+        // Como tu flujo es fijo, puedes asumir monto fijo, descripción fija.
+        const price = 50; // por ejemplo 50 MXN
+        const description = 'Generación de canción IA';
+    
+        // Puedes usar un id único para esta generación, por ejemplo:
+        const songId = `${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+    
+        const preference = {
+            items: [
+                {
+                    title: description,
+                    quantity: 1,
+                    unit_price: price
+                }
+            ],
+            back_urls: {
+                success: `${process.env.FRONTEND_URL}/?payment=success&songId=${songId}`,
+                failure: `${process.env.FRONTEND_URL}/?payment=failure`,
+                pending: `${process.env.FRONTEND_URL}/?payment=pending`
+            },
+            auto_return: 'approved',
+            external_reference: songId,
+            notification_url: `${process.env.BASE_URL}/mp-webhook`
+        };
+  
+        const response = await mercadopago.preferences.create(preference);
+        res.json({
+            init_point: response.body.init_point,
+            songId
+        });
+    }   catch (error) {
+        console.error('Error creando preferencia MP:', error);
+        res.status(500).json({ error: 'Error al crear preferencia' });
+    }
+});
+  
+// Nuevo: webhook de MercadoPago para recibir notificaciones de pago
+app.post('/mp-webhook', async (req, res) => {
+    try {
+        // MercadoPago puede enviar datos con query o en body
+        const topic = req.query.topic || req.body.type;
+        const id = req.query.id || (req.body.data && req.body.data.id);
+    
+        if (!topic || !id) {
+            return res.status(400).send('Faltan parámetros');
+        }
+  
+        if (topic === 'payment') {
+            const paymentInfo = await mercadopago.payment.findById(id);
+            const status = paymentInfo.body.status;
+            const externalRef = paymentInfo.body.external_reference; // tu songId
+  
+            if (status === 'approved') {
+                const { data: existingSong, error: fetchError } = await supabase
+                    .from('songs')
+                    .select('id')
+                    .eq('id', externalRef)
+                    .single();
+
+                if (existingSong) {
+                    const { error } = await supabase
+                        .from('songs')
+                        .update({ payment_status: 'approved' })
+                        .eq('id', externalRef);
+
+                    if (error) {
+                        console.error('Error actualizando pago en Supabase:', error);
+                    } else {
+                        console.log(`✅ Pago aprobado para canción EXISTENTE ${externalRef}`);
+                    }
+                } else {
+                    const now = new Date();
+                    const expiresAt = new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString();
+
+                    const { error } = await supabase
+                        .from('songs')
+                        .insert({
+                            id: externalRef,
+                            status: 'pending',
+                            payment_status: 'approved',
+                            created_at: now.toISOString(),
+                            expires_at
+                        });
+
+                    if (error) {
+                        console.error('Error insertando canción desde webhook MP:', error);
+                    } else {
+                        console.log(`✅ Pago aprobado y canción INSERTADA con ID: ${externalRef}`);
+                    }
+                }
+            }
+        }
+        
+        res.status(200).send('OK');
+    }   catch (error) {
+        console.error('Error en webhook MP:', error);
+        res.status(500).send('Error');
+    }
+});
+
 app.get('/config.js', (req, res) => {
     const config = {
         baseUrl: process.env.BASE_URL,
@@ -150,6 +257,11 @@ app.get('/config.js', (req, res) => {
 
     res.setHeader('Content-Type', 'application/javascript');
     res.send(`const API_CONFIG = ${JSON.stringify(config)};`);
+});
+
+// Servir frontend
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.listen(PORT, () => {
