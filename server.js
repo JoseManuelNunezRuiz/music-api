@@ -270,31 +270,34 @@ app.post('/mp-webhook', async (req, res) => {
 app.get('/test-mp-token', async (req, res) => {
     try {
         const token = process.env.MERCADOPAGO_ACCESS_TOKEN;
-        
-        // Hacer una solicitud simple a la API de MP para verificar el token
-        const response = await fetch('https://api.mercadopago.com/v1/payments', {
+
+        const response = await fetch('https://api.mercadopago.com/users/me', {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${token}`
             }
         });
-        
+
+        const data = await response.json();
+
         if (response.ok) {
-            res.json({ 
+            res.json({
                 status: '✅ Token válido',
-                token_type: token.startsWith('APP_USR-') ? 'Producción/Pruebas' : 'Desconocido'
+                user_id: data.id,
+                nickname: data.nickname,
+                email: data.email,
+                token_type: token.startsWith('TEST-') ? 'Sandbox' : 'Producción'
             });
         } else {
-            const errorData = await response.json();
-            res.status(400).json({ 
+            res.status(400).json({
                 status: '❌ Token inválido',
-                error: errorData 
+                error: data
             });
         }
     } catch (error) {
-        res.status(500).json({ 
+        res.status(500).json({
             status: '❌ Error probando token',
-            error: error.message 
+            error: error.message
         });
     }
 });
