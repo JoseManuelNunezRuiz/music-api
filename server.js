@@ -9,9 +9,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Configurar MercadoPago
-mercadopago.configure({
-    access_token: process.env.MP_ACCESS_TOKEN
-  });
+const { MercadoPagoConfig, Preference } = require('mercadopago');
+
+const mp = new MercadoPagoConfig({ accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN });
+
 
 // Inicializa cliente Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -143,19 +144,14 @@ setInterval(async () => {
     }
 }, 60 * 60 * 1000); // Cada hora
 
-// Nuevo: endpoint para crear preferencia de pago
 app.post('/create_preference', async (req, res) => {
     try {
-        // Esperamos que el frontend envíe al menos los datos mínimos
-        // para crear la preferencia (por ejemplo monto, descripción, etc.).
-        // Como tu flujo es fijo, puedes asumir monto fijo, descripción fija.
         const price = 50; // por ejemplo 50 MXN
         const description = 'Generación de canción IA';
-    
-        // Puedes usar un id único para esta generación, por ejemplo:
+
         const songId = `${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-    
-        const preference = {
+
+        const preferenceData = {
             items: [
                 {
                     title: description,
@@ -172,13 +168,15 @@ app.post('/create_preference', async (req, res) => {
             external_reference: songId,
             notification_url: `${process.env.BASE_URL}/mp-webhook`
         };
-  
-        const response = await mercadopago.preferences.create(preference);
+
+        const preference = await new Preference(mp).create({ body: preferenceData });
+
         res.json({
-            init_point: response.body.init_point,
+            init_point: preference.init_point,
             songId
         });
-    }   catch (error) {
+
+    } catch (error) {
         console.error('Error creando preferencia MP:', error);
         res.status(500).json({ error: 'Error al crear preferencia' });
     }
@@ -187,19 +185,18 @@ app.post('/create_preference', async (req, res) => {
 // Nuevo: webhook de MercadoPago para recibir notificaciones de pago
 app.post('/mp-webhook', async (req, res) => {
     try {
-        // MercadoPago puede enviar datos con query o en body
         const topic = req.query.topic || req.body.type;
         const id = req.query.id || (req.body.data && req.body.data.id);
     
         if (!topic || !id) {
             return res.status(400).send('Faltan parámetros');
         }
-  
+
         if (topic === 'payment') {
-            const paymentInfo = await mercadopago.payment.findById(id);
-            const status = paymentInfo.body.status;
-            const externalRef = paymentInfo.body.external_reference; // tu songId
-  
+            const paymentInfo = await new Payment(mp).get({ id });
+            const status = paymentInfo.status;
+            const externalRef = paymentInfo.external_reference; // tu songId
+
             if (status === 'approved') {
                 const { data: existingSong, error: fetchError } = await supabase
                     .from('songs')
@@ -240,9 +237,9 @@ app.post('/mp-webhook', async (req, res) => {
                 }
             }
         }
-        
+
         res.status(200).send('OK');
-    }   catch (error) {
+    } catch (error) {
         console.error('Error en webhook MP:', error);
         res.status(500).send('Error');
     }
