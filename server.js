@@ -148,23 +148,20 @@ setInterval(async () => {
 // CORREGIR el endpoint create_preference
 app.post('/create_preference', async (req, res) => {
     try {
-        console.log('Solicitud recibida para crear preferencia:', req.body);
-        
-        const price = 50; // 50 MXN
+        const price = 50;
         const description = 'Generación de canción IA';
-
         const songId = `${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
 
-        // Validar que las URLs estén definidas
-        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-        const baseUrl = process.env.BASE_URL || 'https://musicapi-6gjf.onrender.com';
+        // CORREGIR las URLs - eliminar doble barra
+        const frontendUrl = (process.env.FRONTEND_URL || 'https://musicapi-6gjf.onrender.com').replace(/\/+$/, '');
+        const baseUrl = (process.env.BASE_URL || 'https://musicapi-6gjf.onrender.com').replace(/\/+$/, '');
 
         const preferenceData = {
             items: [
                 {
                     title: description,
                     quantity: 1,
-                    currency_id: 'MXN', // 👈 Agregar currency
+                    currency_id: 'MXN',
                     unit_price: price
                 }
             ],
@@ -178,24 +175,25 @@ app.post('/create_preference', async (req, res) => {
             notification_url: `${baseUrl}/mp-webhook`
         };
 
-        console.log('Datos de preferencia:', preferenceData);
+        console.log('✅ URLs corregidas:', {
+            success: preferenceData.back_urls.success,
+            notification: preferenceData.notification_url
+        });
 
         const preference = await new Preference(mp).create({ body: preferenceData });
-
-        console.log('Preferencia creada:', preference);
-
+        
         res.json({
             init_point: preference.init_point,
             songId: songId
         });
 
     } catch (error) {
-        console.error('❌ Error detallado creando preferencia MP:', error);
+        console.error('❌ Error MP completo:', JSON.stringify(error, null, 2));
         
-        // Log más detallado del error
-        if (error.response) {
-            console.error('Response error:', error.response.data);
-            console.error('Status:', error.response.status);
+        // Verificar específicamente el error de token
+        if (error.message === 'invalid_token' || error.status === 400) {
+            console.log('🔍 Problema de autenticación. Verificando token...');
+            console.log('🔑 Token (primeros 20 chars):', process.env.MERCADOPAGO_ACCESS_TOKEN?.substring(0, 20) + '...');
         }
         
         res.status(500).json({ 
@@ -265,6 +263,39 @@ app.post('/mp-webhook', async (req, res) => {
     } catch (error) {
         console.error('Error en webhook MP:', error);
         res.status(500).send('Error');
+    }
+});
+
+// Endpoint para probar el token
+app.get('/test-mp-token', async (req, res) => {
+    try {
+        const token = process.env.MERCADOPAGO_ACCESS_TOKEN;
+        
+        // Hacer una solicitud simple a la API de MP para verificar el token
+        const response = await fetch('https://api.mercadopago.com/v1/payments', {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        if (response.ok) {
+            res.json({ 
+                status: '✅ Token válido',
+                token_type: token.startsWith('APP_USR-') ? 'Producción/Pruebas' : 'Desconocido'
+            });
+        } else {
+            const errorData = await response.json();
+            res.status(400).json({ 
+                status: '❌ Token inválido',
+                error: errorData 
+            });
+        }
+    } catch (error) {
+        res.status(500).json({ 
+            status: '❌ Error probando token',
+            error: error.message 
+        });
     }
 });
 
