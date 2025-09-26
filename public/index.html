@@ -857,34 +857,39 @@
             payBtn.disabled = true;
 
             try {
-                // Crear preferencia de pago
+                // Crear preferencia de pago - ENVIAR solo los datos necesarios
                 const response = await fetch('https://musicapi-6gjf.onrender.com/create_preference', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        songData: currentSongData
+                        // Enviar solo los datos que el backend espera
+                        price: 50,
+                        description: 'Generación de canción IA'
                     })
                 });
 
+                const result = await response.json();
+                
                 if (!response.ok) {
-                    throw new Error('Error al crear preferencia de pago');
+                    throw new Error(result.error || 'Error al crear preferencia de pago');
                 }
 
-                const result = await response.json();
                 currentSongId = result.songId;
 
-                // Guardar songId en localStorage para recuperar después del pago
+                // Guardar songId y datos en localStorage
                 localStorage.setItem('pendingSongId', currentSongId);
                 localStorage.setItem('pendingSongData', JSON.stringify(currentSongData));
 
+                console.log('Redirigiendo a:', result.init_point);
+                
                 // Redirigir a MercadoPago
                 window.location.href = result.init_point;
 
             } catch (error) {
                 console.error('Error al procesar pago:', error);
-                showError('Error al procesar el pago. Por favor, intenta de nuevo.');
+                showError(error.message || 'Error al procesar el pago. Por favor, intenta de nuevo.');
                 resetPayButton();
             }
         });

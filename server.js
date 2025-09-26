@@ -8,11 +8,12 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Configurar MercadoPago
-const { MercadoPagoConfig, Preference } = require('mercadopago');
+// Configurar MercadoPago CORRECTAMENTE
+const { MercadoPagoConfig, Preference, Payment } = require('mercadopago'); // 👈 Agregar Payment
 
-const mp = new MercadoPagoConfig({ accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN });
-
+const mp = new MercadoPagoConfig({ 
+    accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN 
+});
 
 // Inicializa cliente Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -144,44 +145,66 @@ setInterval(async () => {
     }
 }, 60 * 60 * 1000); // Cada hora
 
+// CORREGIR el endpoint create_preference
 app.post('/create_preference', async (req, res) => {
     try {
-        const price = 50; // por ejemplo 50 MXN
+        console.log('Solicitud recibida para crear preferencia:', req.body);
+        
+        const price = 50; // 50 MXN
         const description = 'Generación de canción IA';
 
         const songId = `${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+
+        // Validar que las URLs estén definidas
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+        const baseUrl = process.env.BASE_URL || 'https://musicapi-6gjf.onrender.com';
 
         const preferenceData = {
             items: [
                 {
                     title: description,
                     quantity: 1,
+                    currency_id: 'MXN', // 👈 Agregar currency
                     unit_price: price
                 }
             ],
             back_urls: {
-                success: `${process.env.FRONTEND_URL}/?payment=success&songId=${songId}`,
-                failure: `${process.env.FRONTEND_URL}/?payment=failure`,
-                pending: `${process.env.FRONTEND_URL}/?payment=pending`
+                success: `${frontendUrl}/?payment=success&songId=${songId}`,
+                failure: `${frontendUrl}/?payment=failure`,
+                pending: `${frontendUrl}/?payment=pending`
             },
             auto_return: 'approved',
             external_reference: songId,
-            notification_url: `${process.env.BASE_URL}/mp-webhook`
+            notification_url: `${baseUrl}/mp-webhook`
         };
+
+        console.log('Datos de preferencia:', preferenceData);
 
         const preference = await new Preference(mp).create({ body: preferenceData });
 
+        console.log('Preferencia creada:', preference);
+
         res.json({
             init_point: preference.init_point,
-            songId
+            songId: songId
         });
 
     } catch (error) {
-        console.error('Error creando preferencia MP:', error);
-        res.status(500).json({ error: 'Error al crear preferencia' });
+        console.error('❌ Error detallado creando preferencia MP:', error);
+        
+        // Log más detallado del error
+        if (error.response) {
+            console.error('Response error:', error.response.data);
+            console.error('Status:', error.response.status);
+        }
+        
+        res.status(500).json({ 
+            error: 'Error al crear preferencia',
+            details: error.message 
+        });
     }
 });
-  
+
 // Nuevo: webhook de MercadoPago para recibir notificaciones de pago
 app.post('/mp-webhook', async (req, res) => {
     try {
