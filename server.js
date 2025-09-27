@@ -25,10 +25,10 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
-// Endpoint para recibir callbacks de Suno API
+// Callback SunoAPI endpoint
 app.post('/callback', async (req, res) => {
     try {
-        console.log('🔔 Callback Suno recibido:', JSON.stringify(req.body, null, 2));
+        console.log('🔔 Callback Suno recibido');
 
         const { code, data, msg } = req.body;
 
@@ -45,35 +45,48 @@ app.post('/callback', async (req, res) => {
         let title = 'Mi Canción';
 
         if (Array.isArray(data.data) && data.data.length > 0) {
-            audio_url = data.data[0].audio_url || null;
-            title = data.data[0].title || title;
+            // Buscar el primer elemento que tenga audio_url
+            for (const item of data.data) {
+                if (item.audio_url && item.audio_url.trim() !== '') {
+                    audio_url = item.audio_url;
+                    title = item.title || title;
+                    break;
+                }
+            }
         }
 
-        const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
-
-        // Solo guardar si audio_url está presente
+        // ✅ SOLO guardar si audio_url está presente y no vacío
         if (audio_url && audio_url.trim() !== '') {
+            const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
+            
+            const songData = {
+                id,
+                status: 'complete', // Siempre 'complete' cuando hay audio
+                audio_url,
+                title,
+                expires_at: expiresAt.toISOString(),
+                created_at: new Date().toISOString()
+            };
+
+            console.log('💾 Guardando canción COMPLETA en Supabase:', {
+                id: id,
+                title: title,
+                audio_url: audio_url.substring(0, 50) + '...' // Log parcial por seguridad
+            });
+
+            // Usar la service role key que bypass RLS
             const { error } = await supabase
                 .from('songs')
-                .upsert({
-                    id,
-                    status: status === 'complete' ? 'completed' : status,
-                    audio_url,
-                    title,
-                    expires_at: expiresAt.toISOString(),
-                    updated_at: new Date().toISOString(),
-                    payment_status: 'approved'
-                });
+                .upsert(songData);
 
             if (error) {
                 console.error('❌ Error guardando canción en Supabase:', error);
                 return res.status(500).json({ error: 'Error guardando canción' });
             }
 
-            console.log(`🎵 Canción ${id} guardada con audio: ${audio_url}`);
+            console.log(`🎵 Canción ${id} guardada EXITOSAMENTE en Supabase`);
         } else {
-            console.warn(`⚠️ Audio URL vacío para canción ${id} en status: ${status}`);
-            // No guardamos si no hay audio, el frontend seguirá preguntando
+            console.log(`⏳ Callback recibido pero sin audio_url aún (status: ${status}). Esperando...`);
         }
 
         res.status(200).json({ success: true, message: 'Callback procesado' });

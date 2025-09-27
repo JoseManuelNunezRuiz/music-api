@@ -1025,10 +1025,10 @@
             }
         }
     
-        // Polling para verificar estado de la canción
+        // Polling mejorado en el frontend
         async function startPolling(taskId) {
             let attempts = 0;
-            const maxAttempts = 30; // 30 intentos × 25 segundos = ~12.5 minutos
+            const maxAttempts = 30;
             
             generationStatus.textContent = `Generando canción... (0/${maxAttempts})`;
             
@@ -1036,7 +1036,6 @@
                 attempts++;
                 
                 try {
-                    // Consultar el estado en TU backend (que recibe los callbacks de Suno)
                     const statusResponse = await fetch(`https://musicapi-6gjf.onrender.com/song/${taskId}`);
                     
                     if (statusResponse.ok) {
@@ -1044,23 +1043,17 @@
                         
                         console.log('📊 Estado de la canción:', songData.status);
                         
+                        // ✅ Solo mostrar cuando esté COMPLETA con audio_url
                         if (songData.status === 'complete' && songData.audio_url) {
                             clearInterval(pollInterval);
                             generationStatus.textContent = '¡Canción generada con éxito!';
                             displaySong(songData);
-                            
-                            // Limpiar localStorage
-                            localStorage.removeItem('currentTaskId');
-                            return;
-                        } else if (songData.status === 'failed') {
-                            clearInterval(pollInterval);
-                            generationStatus.textContent = 'Error al generar la canción. Por favor, intenta de nuevo.';
                             localStorage.removeItem('currentTaskId');
                             return;
                         }
                     } else if (statusResponse.status === 404) {
-                        // La canción aún no existe en Supabase (normal al principio)
-                        console.log('Canción aún no registrada en Supabase...');
+                        // Canción aún no existe en Supabase (normal, sigue generándose)
+                        console.log('⏳ Canción aún no está en Supabase...');
                     }
                     
                     if (attempts >= maxAttempts) {
@@ -1078,7 +1071,7 @@
                         localStorage.removeItem('currentTaskId');
                     }
                 }
-            }, 25000); // 25 segundos
+            }, 25000);
         }
     
         function displaySong(song) {
