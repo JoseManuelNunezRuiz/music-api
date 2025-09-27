@@ -8,8 +8,8 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Configurar MercadoPago CORRECTAMENTE
-const { MercadoPagoConfig, Preference, Payment } = require('mercadopago'); // 👈 Agregar Payment
+// Configurar MercadoPago
+const { MercadoPagoConfig, Preference, Payment } = require('mercadopago');
 
 const mp = new MercadoPagoConfig({ 
     accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN 
@@ -28,7 +28,7 @@ app.use(express.static('public'));
 // Endpoint para recibir callbacks de Suno API
 app.post('/callback', async (req, res) => {
     try {
-        console.log('Callback recibido:', req.body);
+        console.log('🔔 Callback Suno recibido:', JSON.stringify(req.body, null, 2));
 
         const { code, data, msg } = req.body;
 
@@ -39,7 +39,7 @@ app.post('/callback', async (req, res) => {
         const id = data.task_id || data.taskId;
         const status = data.status || data.callbackType || 'unknown';
 
-        console.log('Contenido data.data:', data.data);
+        console.log('📊 Estado del callback:', status);
 
         let audio_url = null;
         let title = 'Mi Canción';
@@ -51,19 +51,18 @@ app.post('/callback', async (req, res) => {
 
         const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
 
-        // Insertar o actualizar canción en Supabase
-        // Solo guardar si audio_url está presente y no vacío
+        // Solo guardar si audio_url está presente
         if (audio_url && audio_url.trim() !== '') {
             const { error } = await supabase
                 .from('songs')
                 .upsert({
                     id,
-                    status,
+                    status: status === 'complete' ? 'completed' : status,
                     audio_url,
                     title,
                     expires_at: expiresAt.toISOString(),
-                    created_at: new Date().toISOString(),
-                    payment_status: 'pending' // 👈 Agregado aquí
+                    updated_at: new Date().toISOString(),
+                    payment_status: 'approved'
                 });
 
             if (error) {
@@ -71,9 +70,10 @@ app.post('/callback', async (req, res) => {
                 return res.status(500).json({ error: 'Error guardando canción' });
             }
 
-            console.log(`🎵 Canción ${id} guardada con estado: ${status}`);
+            console.log(`🎵 Canción ${id} guardada con audio: ${audio_url}`);
         } else {
-            console.warn(`⚠️ No se guardó la canción ${id} porque audio_url está vacío en status: ${status}`);
+            console.warn(`⚠️ Audio URL vacío para canción ${id} en status: ${status}`);
+            // No guardamos si no hay audio, el frontend seguirá preguntando
         }
 
         res.status(200).json({ success: true, message: 'Callback procesado' });
@@ -126,6 +126,160 @@ app.get('/songs', async (req, res) => {
     }
 });
 
+// Endpoint para generar canción con Suno API (llamado desde el frontend después del pago)
+app.post('/generate-song', async (req, res) => {
+    try {
+        const { songData } = req.body;
+        
+        console.log('🎵 Solicitando generación a Suno API:', songData);
+
+        if (!songData) {
+            return res.status(400).json({ error: 'Datos de canción requeridos' });
+        }
+
+        const sunoApiUrl = process.env.BASE_URL;
+        const sunoApiKey = process.env.API_KEY;
+
+        if (!sunoApiKey) {
+            return res.status(500).json({ error: 'API_KEY de Suno no configurada' });
+        }
+
+        // Preparar payload para Suno API según el modo
+        let sunoPayload = {};
+        
+        if (songData.customMode) {
+            // Modo personalizado
+            sunoPayload = {
+                prompt: songData.styleDescription || "Canción personalizada",
+                title: songData.title || "Mi Canción",
+                tags: songData.style || "Various",
+                instrumental: songData.instrumental || false,
+                make_instrumental: songData.instrumental || false,
+                model: "suno-v3.5",
+                wait_audio: false,
+                lyrics: songData.lyrics || ""
+            };
+        } else {
+            // Modo simple
+            sunoPayload = {
+                prompt: songData.prompt || "Canción generada",
+                title: songData.title || "Mi Canción",
+                tags: "Various",
+                instrumental: songData.instrumental || false,
+                make_instrumental: songData.instrumental || false,
+                model: "suno-v3.5",
+                wait_audio: false
+            };
+        }
+
+        console.log('📤 Enviando a Suno API:', sunoPayload);
+
+        const response = await fetch(`${sunoApiUrl}/generate`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${sunoApiKey}`
+            },
+            body: JSON.stringify(sunoPayload)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Error Suno API: ${response.status} - ${errorText}`);
+        }
+
+        const result = await response.json();
+        console.log('✅ Respuesta de Suno API:', result);
+
+        const taskId = result?.task_id || result?.data?.taskId || result?.id;
+
+        if (taskId) {
+            // Guardar en Supabase con estado "generating"
+            const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
+            
+            const { error } = await supabase
+                .from('songs')
+                .upsert({
+                    id: taskId, // Usar el taskId de Suno como ID
+                    status: 'generating',
+                    payment_status: 'approved',
+                    title: songData.title || 'Canción en generación',
+                    created_at: new Date().toISOString(),
+                    expires_at: expiresAt.toISOString(),
+                    metadata: {
+                        song_data: songData,
+                        generated_at: new Date().toISOString()
+                    }
+                });
+
+            if (error) {
+                console.error('❌ Error guardando en Supabase:', error);
+            }
+
+            res.json({
+                success: true,
+                taskId: taskId,
+                message: 'Canción en proceso de generación'
+            });
+        } else {
+            throw new Error('No se recibió task_id de Suno API');
+        }
+
+    } catch (error) {
+        console.error('❌ Error generando canción:', error);
+        res.status(500).json({ 
+            error: 'Error al generar canción',
+            details: error.message 
+        });
+    }
+});
+
+// Endpoint para crear preferencia de pago
+app.post('/create_preference', async (req, res) => {
+    try {
+        const price = 50;
+        const description = 'Generación de canción IA';
+        const songId = `${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+
+        const frontendUrl = (process.env.FRONTEND_URL || 'https://musicapi-6gjf.onrender.com').replace(/\/+$/, '');
+        const baseUrl = (process.env.BASE_URL || 'https://musicapi-6gjf.onrender.com').replace(/\/+$/, '');
+
+        const preferenceData = {
+            items: [
+                {
+                    title: description,
+                    quantity: 1,
+                    currency_id: 'MXN',
+                    unit_price: price
+                }
+            ],
+            back_urls: {
+                success: `${frontendUrl}/?payment=success&songId=${songId}`,
+                failure: `${frontendUrl}/?payment=failure`,
+                pending: `${frontendUrl}/?payment=pending`
+            },
+            auto_return: 'approved',
+            external_reference: songId
+        };
+
+        console.log('✅ Creando preferencia para canción:', songId);
+
+        const preference = await new Preference(mp).create({ body: preferenceData });
+        
+        res.json({
+            init_point: preference.init_point,
+            songId: songId
+        });
+
+    } catch (error) {
+        console.error('❌ Error creando preferencia MP:', error);
+        res.status(500).json({ 
+            error: 'Error al crear preferencia',
+            details: error.message 
+        });
+    }
+});
+
 // Limpiar canciones expiradas periódicamente
 setInterval(async () => {
     try {
@@ -145,163 +299,6 @@ setInterval(async () => {
     }
 }, 60 * 60 * 1000); // Cada hora
 
-// CORREGIR el endpoint create_preference
-app.post('/create_preference', async (req, res) => {
-    try {
-        const price = 50;
-        const description = 'Generación de canción IA';
-        const songId = `${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-
-        // CORREGIR las URLs - eliminar doble barra
-        const frontendUrl = (process.env.FRONTEND_URL || 'https://musicapi-6gjf.onrender.com').replace(/\/+$/, '');
-        const baseUrl = (process.env.BASE_URL || 'https://musicapi-6gjf.onrender.com').replace(/\/+$/, '');
-
-        const preferenceData = {
-            items: [
-                {
-                    title: description,
-                    quantity: 1,
-                    currency_id: 'MXN',
-                    unit_price: price
-                }
-            ],
-            back_urls: {
-                success: `${frontendUrl}/?payment=success&songId=${songId}`,
-                failure: `${frontendUrl}/?payment=failure`,
-                pending: `${frontendUrl}/?payment=pending`
-            },
-            auto_return: 'approved',
-            external_reference: songId,
-            notification_url: `${baseUrl}/mp-webhook`
-        };
-
-        console.log('✅ URLs corregidas:', {
-            success: preferenceData.back_urls.success,
-            notification: preferenceData.notification_url
-        });
-
-        const preference = await new Preference(mp).create({ body: preferenceData });
-        
-        res.json({
-            init_point: preference.init_point,
-            songId: songId
-        });
-
-    } catch (error) {
-        console.error('❌ Error MP completo:', JSON.stringify(error, null, 2));
-        
-        // Verificar específicamente el error de token
-        if (error.message === 'invalid_token' || error.status === 400) {
-            console.log('🔍 Problema de autenticación. Verificando token...');
-            console.log('🔑 Token (primeros 20 chars):', process.env.MERCADOPAGO_ACCESS_TOKEN?.substring(0, 20) + '...');
-        }
-        
-        res.status(500).json({ 
-            error: 'Error al crear preferencia',
-            details: error.message 
-        });
-    }
-});
-
-// Nuevo: webhook de MercadoPago para recibir notificaciones de pago
-app.post('/mp-webhook', async (req, res) => {
-    try {
-        const topic = req.query.topic || req.body.type;
-        const id = req.query.id || (req.body.data && req.body.data.id);
-    
-        if (!topic || !id) {
-            return res.status(400).send('Faltan parámetros');
-        }
-
-        if (topic === 'payment') {
-            const paymentInfo = await new Payment(mp).get({ id });
-            const status = paymentInfo.status;
-            const externalRef = paymentInfo.external_reference; // tu songId
-
-            if (status === 'approved') {
-                const { data: existingSong, error: fetchError } = await supabase
-                    .from('songs')
-                    .select('id')
-                    .eq('id', externalRef)
-                    .single();
-
-                if (existingSong) {
-                    const { error } = await supabase
-                        .from('songs')
-                        .update({ payment_status: 'approved' })
-                        .eq('id', externalRef);
-
-                    if (error) {
-                        console.error('Error actualizando pago en Supabase:', error);
-                    } else {
-                        console.log(`✅ Pago aprobado para canción EXISTENTE ${externalRef}`);
-                    }
-                } else {
-                    const now = new Date();
-                    const expiresAt = new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString();
-
-                    const { error } = await supabase
-                        .from('songs')
-                        .insert({
-                            id: externalRef,
-                            status: 'pending',
-                            payment_status: 'approved',
-                            created_at: now.toISOString(),
-                            expires_at
-                        });
-
-                    if (error) {
-                        console.error('Error insertando canción desde webhook MP:', error);
-                    } else {
-                        console.log(`✅ Pago aprobado y canción INSERTADA con ID: ${externalRef}`);
-                    }
-                }
-            }
-        }
-
-        res.status(200).send('OK');
-    } catch (error) {
-        console.error('Error en webhook MP:', error);
-        res.status(500).send('Error');
-    }
-});
-
-// Endpoint para probar el token
-app.get('/test-mp-token', async (req, res) => {
-    try {
-        const token = process.env.MERCADOPAGO_ACCESS_TOKEN;
-
-        const response = await fetch('https://api.mercadopago.com/users/me', {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-            res.json({
-                status: '✅ Token válido',
-                user_id: data.id,
-                nickname: data.nickname,
-                email: data.email,
-                token_type: token.startsWith('TEST-') ? 'Sandbox' : 'Producción'
-            });
-        } else {
-            res.status(400).json({
-                status: '❌ Token inválido',
-                error: data
-            });
-        }
-    } catch (error) {
-        res.status(500).json({
-            status: '❌ Error probando token',
-            error: error.message
-        });
-    }
-});
-
 app.get('/config.js', (req, res) => {
     const config = {
         baseUrl: process.env.BASE_URL,
@@ -319,6 +316,7 @@ app.get('/', (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`Servidor ejecutándose en puerto ${PORT}`);
-    console.log(`Callback URL: https://musicapi-6gjf.onrender.com/callback`);
+    console.log(`🚀 Servidor ejecutándose en puerto ${PORT}`);
+    console.log(`🔔 Callback URL: https://musicapi-6gjf.onrender.com/callback`);
+    console.log(`🎵 Suno API: ${process.env.BASE_URL}`);
 });
