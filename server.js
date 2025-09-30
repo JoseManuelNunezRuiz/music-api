@@ -15,6 +15,42 @@ const mp = new MercadoPagoConfig({
     accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN 
 });
 
+// Agregar estas funciones al principio de tu backend (después de los requires)
+const crypto = require('crypto');
+
+// Generar un ID único de sesión para cada usuario
+function generateSessionId(req) {
+    // Combinar IP + User-Agent + timestamp para crear un ID único
+    const ip = req.ip || req.connection.remoteAddress;
+    const userAgent = req.get('User-Agent') || '';
+    const timestamp = Date.now().toString();
+    
+    return crypto
+        .createHash('md5')
+        .update(ip + userAgent + timestamp)
+        .digest('hex')
+        .substring(0, 16);
+}
+
+// Middleware para manejar sesiones
+app.use((req, res, next) => {
+    // Verificar si ya existe una sesión en cookies
+    let sessionId = req.cookies?.sessionId;
+    
+    if (!sessionId) {
+        // Si no existe, crear una nueva
+        sessionId = generateSessionId(req);
+        res.cookie('sessionId', sessionId, {
+            maxAge: 48 * 60 * 60 * 1000, // 48 horas
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production'
+        });
+    }
+    
+    req.sessionId = sessionId;
+    next();
+});
+
 // Inicializa cliente Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -65,13 +101,16 @@ app.post('/callback', async (req, res) => {
                 audio_url,
                 title,
                 expires_at: expiresAt.toISOString(),
-                created_at: new Date().toISOString()
+                created_at: new Date().toISOString(),
+                session_id: data.metadata?.sessionId || 'unknown'
             };
 
             console.log('💾 Guardando canción COMPLETA en Supabase:', {
                 id: id,
                 title: title,
-                audio_url: audio_url.substring(0, 50) + '...' // Log parcial por seguridad
+                audio_url: audio_url.substring(0, 50) + '...', // Log parcial por seguridad
+                session_id: songData.session_id
+
             });
 
             // Usar la service role key que bypass RLS
@@ -100,13 +139,17 @@ app.post('/callback', async (req, res) => {
 app.get('/song/:id', async (req, res) => {
     try {
         const { id } = req.params;
+        const sessionId = req.sessionId;
+
         const { data: song, error } = await supabase
             .from('songs')
             .select('*')
             .eq('id', id)
+            .eq('session_id', sessionId)
             .single();
 
         if (error) {
+            console.log(`❌ Canción ${id} no encontrada para sesión ${sessionId}`);
             return res.status(404).json({ error: 'Canción no encontrada' });
         }
 
@@ -143,6 +186,7 @@ app.get('/songs', async (req, res) => {
 app.post('/generate-song', async (req, res) => {
     try {
         const { songData } = req.body;
+        const sessionId = req.sessionId;
         
         console.log('🎵 Solicitando generación a Suno API:', songData);
 
@@ -170,7 +214,8 @@ app.post('/generate-song', async (req, res) => {
                 make_instrumental: songData.instrumental || false,
                 model: "suno-v3.5",
                 wait_audio: false,
-                lyrics: songData.lyrics || ""
+                lyrics: songData.lyrics || "",
+                metadata: { sessionId }
             };
         } else {
             // Modo simple
@@ -181,7 +226,8 @@ app.post('/generate-song', async (req, res) => {
                 instrumental: songData.instrumental || false,
                 make_instrumental: songData.instrumental || false,
                 model: "suno-v3.5",
-                wait_audio: false
+                wait_audio: false,
+                metadata: { sessionId }
             };
         }
 
@@ -221,7 +267,8 @@ app.post('/generate-song', async (req, res) => {
                     expires_at: expiresAt.toISOString(),
                     metadata: {
                         song_data: songData,
-                        generated_at: new Date().toISOString()
+                        generated_at: new Date().toISOString(),
+                        session_id: sessionId
                     }
                 });
 
@@ -232,6 +279,7 @@ app.post('/generate-song', async (req, res) => {
             res.json({
                 success: true,
                 taskId: taskId,
+                sessionId: sessionId, // ⬅️ NUEVO: Devolver sessionId
                 message: 'Canción en proceso de generación'
             });
         } else {
@@ -315,14 +363,17 @@ setInterval(async () => {
 // Endpoint para obtener canciones recientes del usuario (últimas 48 horas)
 app.get('/recent-songs', async (req, res) => {
     try {
-        // En una implementación real, aquí identificarías al usuario por sesión, token, etc.
-        // Por ahora, devolveremos todas las canciones de las últimas 48 horas
+        
+        const sessionId = req.sessionId; // ⬅️ NUEVO: Obtener sessionId del middleware
+        
+        console.log('📋 Obteniendo canciones para sesión:', sessionId);
         
         const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
         
         const { data: songs, error } = await supabase
             .from('songs')
             .select('*')
+            .eq('session_id', sessionId)
             .gte('created_at', fortyEightHoursAgo)
             .order('created_at', { ascending: false });
 
@@ -336,10 +387,13 @@ app.get('/recent-songs', async (req, res) => {
             song.status === 'complete' && song.audio_url
         );
 
+        console.log(`🎵 Encontradas ${completeSongs.length} canciones para sesión ${sessionId}`);
+
         res.json({
             success: true,
             songs: completeSongs,
-            count: completeSongs.length
+            count: completeSongs.length,
+            sessionId: sessionId
         });
     } catch (error) {
         console.error('Error en endpoint recent-songs:', error);
