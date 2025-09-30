@@ -312,6 +312,41 @@ setInterval(async () => {
     }
 }, 60 * 60 * 1000); // Cada hora
 
+// Endpoint para obtener canciones recientes del usuario (últimas 48 horas)
+app.get('/recent-songs', async (req, res) => {
+    try {
+        // En una implementación real, aquí identificarías al usuario por sesión, token, etc.
+        // Por ahora, devolveremos todas las canciones de las últimas 48 horas
+        
+        const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+        
+        const { data: songs, error } = await supabase
+            .from('songs')
+            .select('*')
+            .gte('created_at', fortyEightHoursAgo)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            console.error('Error obteniendo canciones recientes:', error);
+            return res.status(500).json({ error: 'Error obteniendo canciones recientes' });
+        }
+
+        // Filtrar solo canciones completas con audio
+        const completeSongs = songs.filter(song => 
+            song.status === 'complete' && song.audio_url
+        );
+
+        res.json({
+            success: true,
+            songs: completeSongs,
+            count: completeSongs.length
+        });
+    } catch (error) {
+        console.error('Error en endpoint recent-songs:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+
 app.get('/config.js', (req, res) => {
     const config = {
         baseUrl: process.env.BASE_URL,

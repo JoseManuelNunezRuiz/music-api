@@ -618,6 +618,104 @@
                 border-radius: 0 0 12px 12px;
             }
         }
+
+        /* Estilos para la sección de canciones recientes */
+        .recent-songs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .recent-song-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            transition: var(--transition);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .recent-song-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-5px);
+            box-shadow: var(--glow);
+        }
+
+        .recent-song-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+            opacity: 0.7;
+        }
+
+        .recent-song-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 15px;
+            word-wrap: break-word;
+        }
+
+        .recent-song-time {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .recent-song-time::before {
+            content: '🕒';
+            font-size: 0.8rem;
+        }
+
+        .recent-song-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .recent-song-btn {
+            padding: 8px 16px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: var(--transition);
+            flex: 1;
+            text-align: center;
+            min-width: 120px;
+        }
+
+        .recent-song-play {
+            background: rgba(0, 245, 255, 0.1);
+            color: var(--primary);
+            border: 1px solid var(--primary);
+        }
+
+        .recent-song-play:hover {
+            background: var(--primary);
+            color: var(--dark-bg);
+            box-shadow: var(--glow);
+        }
+
+        .recent-song-download {
+            background: rgba(0, 255, 136, 0.1);
+            color: var(--success);
+            border: 1px solid var(--success);
+        }
+
+        .recent-song-download:hover {
+            background: var(--success);
+            color: var(--dark-bg);
+        }
     </style>
 </head>
 <body>
@@ -718,6 +816,21 @@
             <button id="back-to-form-btn" class="btn" style="background: linear-gradient(135deg, #666, #444); margin-top: 15px;">
                 <span>Volver a Editar</span>
             </button>
+        </div>
+
+        <!-- SECCIÓN DE CANCIONES RECIENTES -->
+        <div class="card" id="recent-songs-section" style="display: none;">
+            <h2 style="text-align: center; margin-bottom: 25px; color: var(--text-primary);">Tus Canciones Recientes</h2>
+            <div id="recent-songs-container">
+                <!-- Las canciones se cargarán aquí dinámicamente -->
+            </div>
+            <div id="no-recent-songs" style="text-align: center; padding: 40px 20px; color: var(--text-muted); display: none;">
+                <p>No tienes canciones generadas en las últimas 48 horas.</p>
+            </div>
+            <div id="recent-songs-loading" style="text-align: center; padding: 20px;">
+                <div class="spinner" style="width: 30px; height: 30px; margin: 0 auto;"></div>
+                <p style="color: var(--text-muted); margin-top: 10px;">Cargando canciones recientes...</p>
+            </div>
         </div>
 
         <!-- PASO 3: GENERACIÓN -->
@@ -1099,6 +1212,100 @@
             results.style.display = 'block';
             results.scrollIntoView({ behavior: 'smooth' });
         }
+
+        // Función para cargar canciones recientes
+        async function loadRecentSongs() {
+            const recentSongsSection = document.getElementById('recent-songs-section');
+            const recentSongsContainer = document.getElementById('recent-songs-container');
+            const noRecentSongs = document.getElementById('no-recent-songs');
+            const recentSongsLoading = document.getElementById('recent-songs-loading');
+
+            try {
+                recentSongsLoading.style.display = 'block';
+                recentSongsContainer.innerHTML = '';
+                noRecentSongs.style.display = 'none';
+
+                const response = await fetch('https://musicapi-6gjf.onrender.com/recent-songs');
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.error || 'Error al cargar canciones recientes');
+                }
+
+                recentSongsLoading.style.display = 'none';
+
+                if (result.songs && result.songs.length > 0) {
+                    displayRecentSongs(result.songs);
+                    recentSongsSection.style.display = 'block';
+                } else {
+                    noRecentSongs.style.display = 'block';
+                    recentSongsSection.style.display = 'block';
+                }
+
+            } catch (error) {
+                console.error('Error cargando canciones recientes:', error);
+                recentSongsLoading.style.display = 'none';
+                // No mostramos error al usuario para no interrumpir la experiencia
+            }
+        }
+
+        // Función para mostrar las canciones recientes en el grid
+        function displayRecentSongs(songs) {
+            const container = document.getElementById('recent-songs-container');
+            
+            container.innerHTML = '<div class="recent-songs-grid"></div>';
+            const grid = container.querySelector('.recent-songs-grid');
+
+            songs.forEach(song => {
+                const songElement = createRecentSongElement(song);
+                grid.appendChild(songElement);
+            });
+        }
+
+        // Función para crear el elemento HTML de cada canción reciente
+        function createRecentSongElement(song) {
+            const songDiv = document.createElement('div');
+            songDiv.className = 'recent-song-card';
+
+            const createdDate = new Date(song.created_at);
+            const timeAgo = getTimeAgo(createdDate);
+            const hoursLeft = Math.floor((new Date(song.expires_at) - new Date()) / (1000 * 60 * 60));
+
+            songDiv.innerHTML = `
+                <h3 class="recent-song-title">${song.title || 'Mi Canción'}</h3>
+                <div class="recent-song-time">
+                    Generada ${timeAgo} • Expira en ${hoursLeft}h
+                </div>
+                <div class="recent-song-actions">
+                    <a href="${song.audio_url}" class="recent-song-btn recent-song-play" target="_blank">
+                        ▶ Escuchar
+                    </a>
+                    <a href="${song.audio_url}" class="recent-song-btn recent-song-download" 
+                    download="${song.title || 'cancion'}.mp3">
+                        ⬇ Descargar
+                    </a>
+                </div>
+            `;
+
+            return songDiv;
+        }
+
+        // Función auxiliar para formatear "hace X tiempo"
+        function getTimeAgo(date) {
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / (1000 * 60));
+            const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+            const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+            if (diffMins < 60) {
+                return `hace ${diffMins} minuto${diffMins !== 1 ? 's' : ''}`;
+            } else if (diffHours < 24) {
+                return `hace ${diffHours} hora${diffHours !== 1 ? 's' : ''}`;
+            } else {
+                return `hace ${diffDays} día${diffDays !== 1 ? 's' : ''}`;
+            }
+        }
     
         // Verificar retorno de pago al cargar la página
         window.addEventListener('load', () => {
@@ -1142,6 +1349,8 @@
                     showStep('generation');
                     generationStatus.textContent = 'Reanudando verificación de canción...';
                     startPolling(currentTaskId);
+                } else{
+                    loadRecentSongs();
                 }
             }
         });
