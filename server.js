@@ -1,4 +1,5 @@
 const express = require('express');
+const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
@@ -60,6 +61,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
+app.use(cookieParser());
 
 // Callback SunoAPI endpoint
 app.post('/callback', async (req, res) => {
