@@ -1169,6 +1169,7 @@
                         console.log('📊 Estado de la canción:', songData.status);
                         
                         // ✅ Solo mostrar cuando esté COMPLETA con audio_url
+                        // En la parte donde la canción está completa, dentro de startPolling:
                         if (songData.status === 'complete' && songData.audio_url) {
                             clearInterval(pollInterval);
                             
@@ -1183,6 +1184,8 @@
                             
                             // Solo llamar a displaySong para mostrar la canción
                             displaySong(songData);
+                            
+                            // ✅ LIMPIAR el currentTaskId cuando la canción esté completa
                             localStorage.removeItem('currentTaskId');
                             return;
                         }
@@ -1350,7 +1353,7 @@
                     // Llamar a Suno API directamente con los datos del formulario
                     generateSongWithSuno(songData);
                     
-                    // Limpiar localStorage del pago (guardamos taskId separadamente)
+                    // Limpiar localStorage del pago
                     localStorage.removeItem('pendingSongId');
                     localStorage.removeItem('pendingSongData');
                 } else {
@@ -1368,39 +1371,12 @@
                 showStatus('Tu pago está pendiente de aprobación. Te notificaremos cuando sea procesado.');
                 showStep('generation');
             } else {
-                // Verificar si hay una canción en proceso (por si se recarga la página)
-                const currentTaskId = localStorage.getItem('currentTaskId');
-                if (currentTaskId) {
-                    // Verificar primero si el taskId es válido y corresponde a una canción real
-                    checkTaskValidity(currentTaskId).then(isValid => {
-                        if (isValid) {
-                            showStep('generation');
-                            generationStatus.textContent = 'Reanudando verificación de canción...';
-                            startPolling(currentTaskId);
-                        } else {
-                            // Si no es válido, limpiar y mostrar el formulario
-                            localStorage.removeItem('currentTaskId');
-                            showStep('form');
-                            loadRecentSongs();
-                        }
-                    });
-                } else {
-                    showStep('form');
-                    loadRecentSongs();
-                }
+                // ✅ SOLUCIÓN SIMPLE: NO verificar currentTaskId - siempre empezar desde el formulario
+                localStorage.removeItem('currentTaskId'); // Limpiar por si acaso
+                showStep('form');
+                loadRecentSongs();
             }
         });
-
-        // Función para verificar si un taskId es válido
-        async function checkTaskValidity(taskId) {
-            try {
-                const response = await fetch(`https://musicapi-6gjf.onrender.com/song/${taskId}`);
-                return response.ok; // Retorna true si la canción existe
-            } catch (error) {
-                console.error('Error verificando taskId:', error);
-                return false;
-            }
-        }
     
         // Función para generar título automático en modo simple
         simplePrompt.addEventListener('blur', () => {
