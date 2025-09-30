@@ -859,6 +859,10 @@
                 <p id="generation-status" style="color: var(--text-secondary); font-size: 1.1rem;">Procesando pago y generando canción...</p>
             </div>
         </div>
+        <div id="results" class="results">
+            <h2>Tu canción generada</h2>
+            <div id="song-container"></div>
+        </div>
     </div>
 
     <script src="/config.js"></script>
@@ -1051,7 +1055,7 @@
                     title: songTitle.value || "Canción Generada",
                     customMode: false,
                     instrumental: document.getElementById('instrumental').checked,
-                    model: "V3_5",
+                    model: "V4_5PLUS",
                     vocalGender: "m",
                     styleWeight: 0.65,
                     weirdnessConstraint: 0.65,
