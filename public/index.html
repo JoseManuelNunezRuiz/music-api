@@ -1337,7 +1337,7 @@
             const urlParams = new URLSearchParams(window.location.search);
             const payment = urlParams.get('payment');
             const songId = urlParams.get('songId');
-    
+
             if (payment === 'success' && songId) {
                 // Pago exitoso - mostrar paso de generación
                 showStep('generation');
@@ -1371,14 +1371,36 @@
                 // Verificar si hay una canción en proceso (por si se recarga la página)
                 const currentTaskId = localStorage.getItem('currentTaskId');
                 if (currentTaskId) {
-                    showStep('generation');
-                    generationStatus.textContent = 'Reanudando verificación de canción...';
-                    startPolling(currentTaskId);
-                } else{
+                    // Verificar primero si el taskId es válido y corresponde a una canción real
+                    checkTaskValidity(currentTaskId).then(isValid => {
+                        if (isValid) {
+                            showStep('generation');
+                            generationStatus.textContent = 'Reanudando verificación de canción...';
+                            startPolling(currentTaskId);
+                        } else {
+                            // Si no es válido, limpiar y mostrar el formulario
+                            localStorage.removeItem('currentTaskId');
+                            showStep('form');
+                            loadRecentSongs();
+                        }
+                    });
+                } else {
+                    showStep('form');
                     loadRecentSongs();
                 }
             }
         });
+
+        // Función para verificar si un taskId es válido
+        async function checkTaskValidity(taskId) {
+            try {
+                const response = await fetch(`https://musicapi-6gjf.onrender.com/song/${taskId}`);
+                return response.ok; // Retorna true si la canción existe
+            } catch (error) {
+                console.error('Error verificando taskId:', error);
+                return false;
+            }
+        }
     
         // Función para generar título automático en modo simple
         simplePrompt.addEventListener('blur', () => {
