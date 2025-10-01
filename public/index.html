@@ -1159,9 +1159,8 @@
         async function startPolling(taskId) {
             let attempts = 0;
             const maxAttempts = 50; // ~20 minutos
-            let lastStatus = 'generating';
             
-            console.log(`🔄 Iniciando polling para task: ${taskId}`);
+            console.log(`🔄 Iniciando polling seguro para task: ${taskId}`);
             generationStatus.textContent = `Iniciando generación... (0/${maxAttempts})`;
             
             const pollInterval = setInterval(async () => {
@@ -1169,23 +1168,17 @@
                 
                 try {
                     const statusResponse = await fetch(`https://musicapi-6gjf.onrender.com/song/${taskId}`, {
-                        credentials: 'include' // 👈 Agregado
+                        credentials: 'include' // 🔐 CRÍTICO: incluir cookies de sesión
                     });
                     
                     if (statusResponse.ok) {
                         const songData = await statusResponse.json();
                         
-                        console.log(`📊 Polling [${attempts}]:`, {
+                        console.log(`📊 Polling seguro [${attempts}]:`, {
                             status: songData.status,
                             hasAudio: !!songData.audio_url,
                             title: songData.title
                         });
-                        
-                        // Actualizar estado visual
-                        if (songData.status !== lastStatus) {
-                            lastStatus = songData.status;
-                            console.log('🔄 Cambio de estado:', lastStatus);
-                        }
                         
                         // Mostrar estado actual al usuario
                         if (songData.status === 'generating' || songData.status === 'submitted') {
@@ -1223,8 +1216,7 @@
                         }
                         
                     } else if (statusResponse.status === 404) {
-                        // Canción no encontrada (puede ser normal al principio)
-                        console.log(`⏳ Canción ${taskId} no encontrada (intento ${attempts})`);
+                        console.log(`⏳ Canción ${taskId} no encontrada o no pertenece al usuario (intento ${attempts})`);
                         generationStatus.textContent = `Preparando generación... (${attempts}/${maxAttempts})`;
                     } else {
                         console.error(`❌ Error en polling: ${statusResponse.status}`);

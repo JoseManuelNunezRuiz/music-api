@@ -3,19 +3,11 @@ const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
-const mercadopago = require('mercadopago');
+const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
-// Configurar MercadoPago
-const { MercadoPagoConfig, Preference, Payment } = require('mercadopago');
-const mp = new MercadoPagoConfig({ 
-    accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN 
-});
-
-const crypto = require('crypto');
 
 // Inicializa cliente Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -29,7 +21,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // 1. CORS primero - con configuración para cookies
 app.use(cors({
     origin: process.env.FRONTEND_URL || 'https://musicapi-6gjf.onrender.com',
-    credentials: true, // ⬅️ CRÍTICO para cookies
+    credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
@@ -45,26 +37,25 @@ app.use(cookieParser());
 app.use(express.static('public'));
 
 // ====================================================
-// 🔑 MIDDLEWARE DE SESIÓN CORREGIDO
+// 🔑 MIDDLEWARE DE SESIÓN SEGURO
 // ====================================================
 app.use((req, res, next) => {
-    // Leer cookie existente
     let sessionId = req.cookies.sessionId;
     
     if (!sessionId) {
-        // Solo crear nueva sesión si NO existe
-        sessionId = crypto.randomBytes(16).toString('hex');
+        // Session ID más seguro con timestamp
+        sessionId = crypto.randomBytes(32).toString('hex') + '-' + Date.now().toString(36);
         
-        // Configurar cookie con opciones apropiadas para Render
+        // Configurar cookie con opciones seguras
         res.cookie('sessionId', sessionId, {
             maxAge: 48 * 60 * 60 * 1000, // 48 horas
             httpOnly: true,
-            secure: true, // ⬅️ HTTPS en producción
-            sameSite: 'none', // ⬅️ CRÍTICO para Render
+            secure: true,
+            sameSite: 'strict', // Más restrictivo
             path: '/'
         });
         
-        console.log('🆕 Nueva sesión creada:', sessionId);
+        console.log('🆕 Nueva sesión segura creada:', sessionId);
     } else {
         console.log('♻️ Sesión existente:', sessionId);
     }
@@ -74,9 +65,20 @@ app.use((req, res, next) => {
 });
 
 // ====================================================
-// RUTAS
+// 🎵 FUNCIÓN PARA CALCULAR HASH DE PROPIEDAD
+// ====================================================
+function calculateUserHash(sessionId, taskId) {
+    return crypto
+        .createHash('sha256')
+        .update(sessionId + taskId)
+        .digest('hex');
+}
+
+// ====================================================
+// RUTAS SEGURAS
 // ====================================================
 
+// 🔔 CALLBACK SEGURO
 app.post('/callback', async (req, res) => {
     try {
         console.log('🔔 Callback Suno recibido');
@@ -93,76 +95,71 @@ app.post('/callback', async (req, res) => {
         
         console.log(`📊 Callback: task=${taskId}, type=${callbackType}, code=${code}`);
 
+        // 🔍 BUSCAR CANCIÓN EXISTENTE PARA PRESERVAR PROPIEDAD
         const { data: existingSong, error: fetchError } = await supabase
             .from('songs')
             .select('*')
             .eq('id', taskId)
             .single();
 
-        if (fetchError || !existingSong) {
-            console.error(`❌ Canción ${taskId} no encontrada en Supabase`);
-            
-            const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
-            const newSong = {
-                id: taskId,
-                status: callbackType === 'complete' ? 'complete' : callbackType,
-                title: 'Canción Generada',
-                created_at: new Date().toISOString(),
-                expires_at: expiresAt.toISOString(),
-                session_id: 'unknown-from-callback',
-                metadata: {
-                    created_from_callback: true,
-                    callback_data: data
-                }
-            };
-
-            if (data.data && data.data.length > 0 && data.data[0].audio_url) {
-                newSong.audio_url = data.data[0].audio_url;
-                newSong.title = data.data[0].title || 'Canción Generada';
-            }
-
-            const { error: createError } = await supabase
-                .from('songs')
-                .upsert(newSong);
-                
-            if (createError) {
-                console.error('❌ Error creando canción desde callback:', createError);
-            } else {
-                console.log('✅ Canción creada desde callback:', taskId);
-            }
-            
-            return res.status(200).json({ success: true });
+        let sessionId = 'unknown-from-callback';
+        let userHash = null;
+        
+        // Si existe la canción, usar sus datos de propiedad ORIGINALES
+        if (existingSong) {
+            sessionId = existingSong.session_id || 'unknown-from-callback';
+            userHash = existingSong.user_hash;
+            console.log(`🎯 Preservando propiedad original: session=${sessionId}`);
         }
 
         let updateData = {
             status: callbackType === 'complete' ? 'complete' : callbackType,
+            session_id: sessionId, // 🔐 MANTENER session_id ORIGINAL
+            user_hash: userHash,   // 🔐 MANTENER user_hash ORIGINAL
             metadata: {
-                ...(existingSong.metadata || {}),
+                ...(existingSong?.metadata || {}),
                 last_callback: new Date().toISOString(),
                 callback_type: callbackType,
                 callback_code: code,
-                callback_message: msg
+                callback_message: msg,
+                callback_data: data
             }
         };
 
+        // Agregar información de audio si está disponible
         if (data.data && data.data.length > 0 && data.data[0].audio_url) {
             updateData.audio_url = data.data[0].audio_url;
-            updateData.title = data.data[0].title || existingSong.title;
+            updateData.title = data.data[0].title || existingSong?.title || 'Canción Generada';
             updateData.status = 'complete';
             console.log(`🎵 Audio URL guardada para ${taskId}`);
         }
 
-        const { error: updateError } = await supabase
-            .from('songs')
-            .update(updateData)
-            .eq('id', taskId);
-
-        if (updateError) {
-            console.error('❌ Error actualizando canción:', updateError);
-            return res.status(500).json({ error: 'Error actualizando canción' });
+        // Si no existe la canción, crear una nueva
+        if (fetchError || !existingSong) {
+            console.log(`🆕 Creando nueva canción desde callback: ${taskId}`);
+            
+            updateData.created_at = new Date().toISOString();
+            updateData.expires_at = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+            updateData.title = updateData.title || 'Canción Generada';
+            updateData.metadata.created_from_callback = true;
+        } else {
+            console.log(`🔄 Actualizando canción existente: ${taskId}`);
+            // Preservar created_at y expires_at originales
+            updateData.created_at = existingSong.created_at;
+            updateData.expires_at = existingSong.expires_at;
         }
 
-        console.log(`✅ Callback procesado para ${taskId}, sesión: ${existingSong.session_id}`);
+        // UPSERT la canción
+        const { error: upsertError } = await supabase
+            .from('songs')
+            .upsert(updateData);
+
+        if (upsertError) {
+            console.error('❌ Error en upsert de canción:', upsertError);
+            return res.status(500).json({ error: 'Error guardando canción' });
+        }
+
+        console.log(`✅ Callback procesado para ${taskId}, sesión: ${sessionId}`);
         res.status(200).json({ success: true });
 
     } catch (error) {
@@ -171,6 +168,7 @@ app.post('/callback', async (req, res) => {
     }
 });
 
+// 🎵 OBTENER CANCIÓN CON VERIFICACIÓN DE PROPIEDAD
 app.get('/song/:id', async (req, res) => {
     try {
         const { id } = req.params;
@@ -178,32 +176,57 @@ app.get('/song/:id', async (req, res) => {
         
         console.log(`🔍 Buscando canción ${id} para sesión ${sessionId}`);
 
+        // 🔐 CALCULAR HASH DE PROPIEDAD ESPERADO
+        const expectedUserHash = calculateUserHash(sessionId, id);
+        
+        console.log(`🔐 Verificando propiedad con hash: ${expectedUserHash.substring(0, 16)}...`);
+
+        // 🔐 BUSCAR SOLO SI EL HASH COINCIDE (PROPIEDAD VERIFICADA)
         const { data: song, error } = await supabase
             .from('songs')
             .select('*')
             .eq('id', id)
-            .eq('session_id', sessionId)
+            .eq('user_hash', expectedUserHash)
             .single();
 
         if (error || !song) {
-            console.log(`❌ Canción ${id} no encontrada para sesión ${sessionId}`);
+            console.log(`🚫 Acceso denegado: ${id} no pertenece a sesión ${sessionId}`);
+            
+            // 🔍 Buscar información de diagnóstico (solo para logs)
+            const { data: diagnosticSong } = await supabase
+                .from('songs')
+                .select('id, session_id, user_hash')
+                .eq('id', id)
+                .single();
+                
+            if (diagnosticSong) {
+                console.log(`🔍 Diagnóstico - Canción existe pero:`, {
+                    session_id_en_db: diagnosticSong.session_id,
+                    session_id_actual: sessionId,
+                    user_hash_en_db: diagnosticSong.user_hash?.substring(0, 16),
+                    user_hash_esperado: expectedUserHash.substring(0, 16)
+                });
+            }
+            
             return res.status(404).json({ error: 'Canción no encontrada' });
         }
 
         if (new Date(song.expires_at) < new Date()) {
+            console.log(`🗑️ Canción ${id} expirada, eliminando...`);
             await supabase.from('songs').delete().eq('id', id);
             return res.status(404).json({ error: 'La canción ha expirado' });
         }
 
-        console.log(`✅ Canción ${id} encontrada para sesión ${sessionId}`);
+        console.log(`✅ Acceso permitido: ${id} pertenece a ${sessionId}`);
         res.json(song);
         
     } catch (error) {
-        console.error('Error obteniendo canción:', error);
+        console.error('❌ Error obteniendo canción:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
+// 🎵 GENERAR CANCIÓN CON PROPIEDAD SEGURA
 app.post('/generate-song', async (req, res) => {
     try {
         const { songData } = req.body;
@@ -231,7 +254,7 @@ app.post('/generate-song', async (req, res) => {
                 tags: songData.style || "Various",
                 instrumental: songData.instrumental || false,
                 make_instrumental: songData.instrumental || false,
-                model: "suno-v3.5",
+                model: "chirp-v3-5",
                 wait_audio: false,
                 lyrics: songData.lyrics || "",
                 callBackUrl: process.env.CALLBACK_URL
@@ -243,7 +266,7 @@ app.post('/generate-song', async (req, res) => {
                 tags: "Various",
                 instrumental: songData.instrumental || false,
                 make_instrumental: songData.instrumental || false,
-                model: "suno-v3.5",
+                model: "chirp-v3-5",
                 wait_audio: false,
                 callBackUrl: process.env.CALLBACK_URL
             };
@@ -273,6 +296,9 @@ app.post('/generate-song', async (req, res) => {
         if (sunoTaskId) {
             const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
             
+            // 🔐 CALCULAR HASH DE PROPIEDAD
+            const userHash = calculateUserHash(sessionId, sunoTaskId);
+            
             const songRecord = {
                 id: sunoTaskId,
                 status: 'generating',
@@ -280,11 +306,13 @@ app.post('/generate-song', async (req, res) => {
                 title: songData.title || 'Canción en generación',
                 created_at: new Date().toISOString(),
                 expires_at: expiresAt.toISOString(),
-                session_id: sessionId,
+                session_id: sessionId, // 🔐 Session ID actual
+                user_hash: userHash,   // 🔐 Hash de propiedad seguro
                 metadata: {
                     song_data: songData,
                     submitted_at: new Date().toISOString(),
                     session_id: sessionId,
+                    user_hash: userHash,
                     suno_response: result
                 }
             };
@@ -292,6 +320,7 @@ app.post('/generate-song', async (req, res) => {
             console.log('💾 Guardando en Supabase:', {
                 taskId: sunoTaskId,
                 sessionId: sessionId,
+                userHash: userHash.substring(0, 16) + '...',
                 title: songRecord.title
             });
 
@@ -325,6 +354,7 @@ app.post('/generate-song', async (req, res) => {
     }
 });
 
+// 💳 CREAR PREFERENCIA DE PAGO
 app.post('/create_preference', async (req, res) => {
     try {
         const price = 50;
@@ -353,6 +383,11 @@ app.post('/create_preference', async (req, res) => {
 
         console.log('✅ Creando preferencia para canción:', songId);
 
+        const { MercadoPagoConfig, Preference } = require('mercadopago');
+        const mp = new MercadoPagoConfig({ 
+            accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN 
+        });
+
         const preference = await new Preference(mp).create({ body: preferenceData });
         
         res.json({
@@ -369,6 +404,7 @@ app.post('/create_preference', async (req, res) => {
     }
 });
 
+// 📋 OBTENER CANCIONES RECIENTES CON PROPIEDAD VERIFICADA
 app.get('/recent-songs', async (req, res) => {
     try {
         const sessionId = req.sessionId;
@@ -377,10 +413,10 @@ app.get('/recent-songs', async (req, res) => {
         
         const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
         
+        // 🔐 SOLO BUSCAR CANCIONES QUE PERTENEZCAN A ESTA SESIÓN
         const { data: songs, error } = await supabase
             .from('songs')
             .select('*')
-            .eq('session_id', sessionId)
             .gte('created_at', fortyEightHoursAgo)
             .order('created_at', { ascending: false });
 
@@ -389,7 +425,13 @@ app.get('/recent-songs', async (req, res) => {
             return res.status(500).json({ error: 'Error obteniendo canciones recientes' });
         }
 
-        const completeSongs = songs.filter(song => 
+        // 🔐 FILTRAR SOLO LAS CANCIONES QUE PERTENEZCAN AL USUARIO ACTUAL
+        const userSongs = songs.filter(song => {
+            const songUserHash = calculateUserHash(sessionId, song.id);
+            return song.user_hash === songUserHash;
+        });
+
+        const completeSongs = userSongs.filter(song => 
             song.status === 'complete' && song.audio_url
         );
 
@@ -407,6 +449,7 @@ app.get('/recent-songs', async (req, res) => {
     }
 });
 
+// 🐛 ENDPOINT DE DIAGNÓSTICO (SOLO DESARROLLO)
 app.get('/debug-songs', async (req, res) => {
     try {
         const sessionId = req.sessionId;
@@ -414,25 +457,35 @@ app.get('/debug-songs', async (req, res) => {
         const { data: songs, error } = await supabase
             .from('songs')
             .select('*')
-            .eq('session_id', sessionId)
-            .order('created_at', { ascending: false });
+            .order('created_at', { ascending: false })
+            .limit(10);
 
         if (error) {
             return res.status(500).json({ error: 'Error obteniendo canciones' });
         }
 
-        res.json({
-            sessionId: sessionId,
-            total: songs.length,
-            songs: songs.map(song => ({
+        // Agregar información de propiedad
+        const songsWithOwnership = songs.map(song => {
+            const expectedHash = calculateUserHash(sessionId, song.id);
+            return {
                 id: song.id,
                 status: song.status,
                 title: song.title,
                 audio_url: song.audio_url ? 'PRESENTE' : 'AUSENTE',
                 created_at: song.created_at,
                 session_id: song.session_id,
+                user_hash: song.user_hash?.substring(0, 16) + '...',
+                expected_hash: expectedHash.substring(0, 16) + '...',
+                belongs_to_user: song.user_hash === expectedHash,
                 expires_at: song.expires_at
-            }))
+            };
+        });
+
+        res.json({
+            sessionId: sessionId,
+            total: songs.length,
+            user_session: sessionId,
+            songs: songsWithOwnership
         });
     } catch (error) {
         console.error('Error en debug:', error);
@@ -440,6 +493,7 @@ app.get('/debug-songs', async (req, res) => {
     }
 });
 
+// 📄 CONFIGURACIÓN
 app.get('/config.js', (req, res) => {
     const config = {
         baseUrl: process.env.BASE_URL,
@@ -451,11 +505,12 @@ app.get('/config.js', (req, res) => {
     res.send(`const API_CONFIG = ${JSON.stringify(config)};`);
 });
 
+// 🏠 RUTA PRINCIPAL
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Limpiar canciones expiradas
+// 🧹 LIMPIAR CANCIONES EXPIRADAS
 setInterval(async () => {
     try {
         const now = new Date().toISOString();
@@ -472,6 +527,7 @@ setInterval(async () => {
     }
 }, 60 * 60 * 1000);
 
+// 🚀 INICIAR SERVIDOR
 app.listen(PORT, () => {
     console.log(`🚀 Servidor ejecutándose en puerto ${PORT}`);
     console.log(`🔔 Callback URL: https://musicapi-6gjf.onrender.com/callback`);
