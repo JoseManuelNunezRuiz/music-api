@@ -63,76 +63,107 @@ app.use(express.json());
 app.use(express.static('public'));
 app.use(cookieParser());
 
-// Callback SunoAPI endpoint
 app.post('/callback', async (req, res) => {
     try {
         console.log('🔔 Callback Suno recibido');
+        console.log('📦 Body completo:', JSON.stringify(req.body, null, 2));
 
-        const { code, data, msg } = req.body;
+        const { code, msg, data } = req.body;
 
         if (!data || !data.task_id) {
+            console.error('❌ Callback inválido: falta task_id');
             return res.status(400).json({ error: 'task_id es requerido en callback' });
         }
 
-        const id = data.task_id || data.taskId;
-        const status = data.status || data.callbackType || 'unknown';
+        const taskId = data.task_id;
+        const callbackType = data.callbackType || 'unknown';
+        const statusCode = code || 500;
 
-        console.log('📊 Estado del callback:', status);
+        console.log(`📊 Callback para task: ${taskId}, tipo: ${callbackType}, código: ${statusCode}`);
 
-        let audio_url = null;
-        let title = 'Mi Canción';
+        // ⬇️ BUSCAR la canción por task_id (sin filtrar por session_id en el callback)
+        const { data: existingSong, error: fetchError } = await supabase
+            .from('songs')
+            .select('*')
+            .eq('id', taskId)
+            .single();
 
-        if (Array.isArray(data.data) && data.data.length > 0) {
-            // Buscar el primer elemento que tenga audio_url
-            for (const item of data.data) {
-                if (item.audio_url && item.audio_url.trim() !== '') {
-                    audio_url = item.audio_url;
-                    title = item.title || title;
-                    break;
-                }
-            }
-        }
-
-        // ✅ SOLO guardar si audio_url está presente y no vacío
-        if (audio_url && audio_url.trim() !== '') {
-            const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
+        if (fetchError) {
+            console.error(`❌ Canción no encontrada en Supabase para task: ${taskId}`, fetchError);
             
-            const songData = {
-                id,
-                status: 'complete', // Siempre 'complete' cuando hay audio
-                audio_url,
-                title,
-                expires_at: expiresAt.toISOString(),
+            // ⬇️ CREAR una nueva entrada si no existe (fallback)
+            const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
+            const newSongData = {
+                id: taskId,
+                status: 'complete',
+                title: 'Canción Generada',
                 created_at: new Date().toISOString(),
-                session_id: data.metadata?.sessionId || 'unknown'
+                expires_at: expiresAt.toISOString(),
+                session_id: 'unknown-from-callback',
+                metadata: {
+                    created_from_callback: true,
+                    callback_data: data
+                }
             };
-
-            console.log('💾 Guardando canción COMPLETA en Supabase:', {
-                id: id,
-                title: title,
-                audio_url: audio_url.substring(0, 50) + '...', // Log parcial por seguridad
-                session_id: songData.session_id
-
-            });
-
-            // Usar la service role key que bypass RLS
-            const { error } = await supabase
+            
+            const { error: createError } = await supabase
                 .from('songs')
-                .upsert(songData);
-
-            if (error) {
-                console.error('❌ Error guardando canción en Supabase:', error);
-                return res.status(500).json({ error: 'Error guardando canción' });
+                .upsert(newSongData);
+                
+            if (createError) {
+                console.error('❌ Error creando canción desde callback:', createError);
+            } else {
+                console.log('✅ Canción creada desde callback para task:', taskId);
             }
-
-            console.log(`🎵 Canción ${id} guardada EXITOSAMENTE en Supabase`);
-        } else {
-            console.log(`⏳ Callback recibido pero sin audio_url aún (status: ${status}). Esperando...`);
+            
+            return res.status(200).json({ success: true, message: 'Callback procesado (canción creada)' });
         }
 
+        // ⬇️ PROCESAR según el tipo de callback y código de estado
+        let updateData = {
+            status: callbackType === 'complete' ? 'complete' : callbackType,
+            metadata: {
+                ...existingSong.metadata,
+                last_callback: new Date().toISOString(),
+                callback_type: callbackType,
+                callback_code: statusCode,
+                callback_message: msg
+            }
+        };
+
+        // Si el callback es de éxito y tiene datos de audio
+        if (statusCode === 200 && data.data && data.data.length > 0) {
+            const firstAudio = data.data[0];
+            
+            if (firstAudio.audio_url) {
+                updateData.audio_url = firstAudio.audio_url;
+                updateData.title = firstAudio.title || existingSong.title;
+                updateData.status = 'complete';
+                
+                console.log(`🎵 Audio URL obtenida para ${taskId}: ${firstAudio.audio_url.substring(0, 50)}...`);
+            }
+            
+            // Guardar todos los datos del callback
+            updateData.metadata.callback_data = data;
+            updateData.metadata.completed_at = new Date().toISOString();
+        }
+
+        // ⬇️ ACTUALIZAR la canción en Supabase
+        const { error: updateError } = await supabase
+            .from('songs')
+            .update(updateData)
+            .eq('id', taskId);
+
+        if (updateError) {
+            console.error('❌ Error actualizando canción en callback:', updateError);
+            return res.status(500).json({ error: 'Error actualizando canción' });
+        }
+
+        console.log(`✅ Callback procesado exitosamente para task: ${taskId}, sesión: ${existingSong.session_id}`);
         res.status(200).json({ success: true, message: 'Callback procesado' });
+
     } catch (error) {
-        console.error('Error procesando callback:', error);
+        console.error('❌ Error procesando callback:', error);
         res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
@@ -190,7 +221,7 @@ app.post('/generate-song', async (req, res) => {
         const { songData } = req.body;
         const sessionId = req.sessionId;
         
-        console.log('🎵 Solicitando generación a Suno API:', songData);
+        console.log('🎵 Solicitando generación a Suno API para sesión:', sessionId);
 
         if (!songData) {
             return res.status(400).json({ error: 'Datos de canción requeridos' });
@@ -203,11 +234,38 @@ app.post('/generate-song', async (req, res) => {
             return res.status(500).json({ error: 'API_KEY de Suno no configurada' });
         }
 
-        // Preparar payload para Suno API según el modo
+        // ⬇️ CRÍTICO: PRIMERO guardar en Supabase con session_id
+        const taskId = `suno-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
+        
+        const { error: saveError } = await supabase
+            .from('songs')
+            .upsert({
+                id: taskId,
+                status: 'submitted',
+                payment_status: 'approved',
+                title: songData.title || 'Canción en generación',
+                created_at: new Date().toISOString(),
+                expires_at: expiresAt.toISOString(),
+                session_id: sessionId,
+                metadata: {
+                    song_data: songData,
+                    submitted_at: new Date().toISOString(),
+                    session_id: sessionId
+                }
+            });
+
+        if (saveError) {
+            console.error('❌ Error guardando en Supabase:', saveError);
+            throw new Error(`Error guardando en base de datos: ${saveError.message}`);
+        }
+
+        console.log(`✅ Canción ${taskId} registrada para sesión ${sessionId}`);
+
+        // Preparar payload para Suno API (SIN metadata)
         let sunoPayload = {};
         
         if (songData.customMode) {
-            // Modo personalizado
             sunoPayload = {
                 prompt: songData.styleDescription || "Canción personalizada",
                 title: songData.title || "Mi Canción",
@@ -217,10 +275,9 @@ app.post('/generate-song', async (req, res) => {
                 model: "suno-v3.5",
                 wait_audio: false,
                 lyrics: songData.lyrics || "",
-                metadata: { sessionId }
+                callBackUrl: process.env.CALLBACK_URL
             };
         } else {
-            // Modo simple
             sunoPayload = {
                 prompt: songData.prompt || "Canción generada",
                 title: songData.title || "Mi Canción",
@@ -229,7 +286,7 @@ app.post('/generate-song', async (req, res) => {
                 make_instrumental: songData.instrumental || false,
                 model: "suno-v3.5",
                 wait_audio: false,
-                metadata: { sessionId }
+                callBackUrl: process.env.CALLBACK_URL
             };
         }
 
@@ -252,36 +309,34 @@ app.post('/generate-song', async (req, res) => {
         const result = await response.json();
         console.log('✅ Respuesta de Suno API:', result);
 
-        const taskId = result?.task_id || result?.data?.taskId || result?.id;
+        const sunoTaskId = result?.task_id || result?.data?.taskId || result?.id;
 
-        if (taskId) {
-            // Guardar en Supabase con estado "generating"
-            const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
-            
-            const { error } = await supabase
+        if (sunoTaskId) {
+            // ⬇️ ACTUALIZAR con el task_id real de Suno
+            const { error: updateError } = await supabase
                 .from('songs')
-                .upsert({
-                    id: taskId, // Usar el taskId de Suno como ID
+                .update({
+                    id: sunoTaskId, // Actualizar con el ID real de Suno
                     status: 'generating',
-                    payment_status: 'approved',
-                    title: songData.title || 'Canción en generación',
-                    created_at: new Date().toISOString(),
-                    expires_at: expiresAt.toISOString(),
                     metadata: {
                         song_data: songData,
-                        generated_at: new Date().toISOString(),
-                        session_id: sessionId
+                        submitted_at: new Date().toISOString(),
+                        session_id: sessionId,
+                        suno_response: result
                     }
-                });
+                })
+                .eq('id', taskId);
 
-            if (error) {
-                console.error('❌ Error guardando en Supabase:', error);
+            if (updateError) {
+                console.error('❌ Error actualizando task_id de Suno:', updateError);
             }
+
+            console.log(`🔄 Task ID actualizado: ${taskId} -> ${sunoTaskId}`);
 
             res.json({
                 success: true,
-                taskId: taskId,
-                sessionId: sessionId, // ⬅️ NUEVO: Devolver sessionId
+                taskId: sunoTaskId,
+                sessionId: sessionId,
                 message: 'Canción en proceso de generación'
             });
         } else {

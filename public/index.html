@@ -1157,9 +1157,11 @@
         // Polling mejorado en el frontend
         async function startPolling(taskId) {
             let attempts = 0;
-            const maxAttempts = 30;
+            const maxAttempts = 50; // ~20 minutos
+            let lastStatus = 'generating';
             
-            generationStatus.textContent = `Generando canción... (0/${maxAttempts})`;
+            console.log(`🔄 Iniciando polling para task: ${taskId}`);
+            generationStatus.textContent = `Iniciando generación... (0/${maxAttempts})`;
             
             const pollInterval = setInterval(async () => {
                 attempts++;
@@ -1170,12 +1172,32 @@
                     if (statusResponse.ok) {
                         const songData = await statusResponse.json();
                         
-                        console.log('📊 Estado de la canción:', songData.status);
+                        console.log(`📊 Polling [${attempts}]:`, {
+                            status: songData.status,
+                            hasAudio: !!songData.audio_url,
+                            title: songData.title
+                        });
                         
-                        // ✅ Solo mostrar cuando esté COMPLETA con audio_url
-                        // En la parte donde la canción está completa, dentro de startPolling:
+                        // Actualizar estado visual
+                        if (songData.status !== lastStatus) {
+                            lastStatus = songData.status;
+                            console.log('🔄 Cambio de estado:', lastStatus);
+                        }
+                        
+                        // Mostrar estado actual al usuario
+                        if (songData.status === 'generating' || songData.status === 'submitted') {
+                            generationStatus.textContent = `Generando canción... (${attempts}/${maxAttempts})`;
+                        } else if (songData.status === 'complete' && songData.audio_url) {
+                            generationStatus.textContent = `Procesando audio... (${attempts}/${maxAttempts})`;
+                        } else {
+                            generationStatus.textContent = `Estado: ${songData.status}... (${attempts}/${maxAttempts})`;
+                        }
+                        
+                        // ✅ CANCIÓN COMPLETA Y LISTA
                         if (songData.status === 'complete' && songData.audio_url) {
                             clearInterval(pollInterval);
+                            
+                            console.log('🎵 Canción COMPLETA encontrada:', songData);
                             
                             // Ocultar spinner y mostrar mensaje de agradecimiento
                             const generationSpinner = document.getElementById('generation-spinner');
@@ -1186,34 +1208,48 @@
                             
                             generationStatus.textContent = '¡Canción generada con éxito!';
                             
-                            // Solo llamar a displaySong para mostrar la canción
+                            // Mostrar la canción
                             displaySong(songData);
                             
-                            // ✅ LIMPIAR el currentTaskId cuando la canción esté completa
+                            // Recargar canciones recientes
+                            setTimeout(() => loadRecentSongs(), 2000);
+                            
+                            // Limpiar localStorage
                             localStorage.removeItem('currentTaskId');
                             return;
                         }
+                        
                     } else if (statusResponse.status === 404) {
-                        // Canción aún no existe en Supabase (normal, sigue generándose)
-                        console.log('⏳ Canción aún no está en Supabase...');
+                        // Canción no encontrada (puede ser normal al principio)
+                        console.log(`⏳ Canción ${taskId} no encontrada (intento ${attempts})`);
+                        generationStatus.textContent = `Preparando generación... (${attempts}/${maxAttempts})`;
+                    } else {
+                        console.error(`❌ Error en polling: ${statusResponse.status}`);
+                        generationStatus.textContent = `Error de conexión... (${attempts}/${maxAttempts})`;
                     }
+                    
+                    // Límite de intentos alcanzado
+                    if (attempts >= maxAttempts) {
+                        clearInterval(pollInterval);
+                        console.log(`🛑 Polling detenido después de ${maxAttempts} intentos`);
+                        generationStatus.textContent = 'La generación está tomando más tiempo. Revisa "Tus Canciones Recientes" en unos minutos.';
+                        localStorage.removeItem('currentTaskId');
+                        
+                        // Forzar recarga de canciones recientes por si acaso
+                        setTimeout(() => loadRecentSongs(), 3000);
+                    }
+                } catch (error) {
+                    console.error('❌ Error en polling:', error);
+                    generationStatus.textContent = `Error de conexión... (${attempts}/${maxAttempts})`;
                     
                     if (attempts >= maxAttempts) {
                         clearInterval(pollInterval);
-                        generationStatus.textContent = 'La generación está tomando más tiempo de lo esperado. Revisa más tarde.';
+                        generationStatus.textContent = 'No se pudo verificar el estado. Revisa "Tus Canciones Recientes" más tarde.';
                         localStorage.removeItem('currentTaskId');
-                    } else {
-                        generationStatus.textContent = `Generando canción... (${attempts}/${maxAttempts})`;
-                    }
-                } catch (error) {
-                    console.error('Error en polling:', error);
-                    if (attempts >= maxAttempts) {
-                        clearInterval(pollInterval);
-                        generationStatus.textContent = 'No se pudo verificar el estado. Revisa más tarde.';
-                        localStorage.removeItem('currentTaskId');
+                        loadRecentSongs();
                     }
                 }
-            }, 25000);
+            }, 25000); // 25 segundos entre intentos
         }
 
         function displaySong(song) {
