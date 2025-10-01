@@ -60,7 +60,10 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Middleware
-app.use(cors());
+app.use(cors({
+    origin: process.env.FRONTEND_URL || 'https://musicapi-6gjf.onrender.com',
+    credentials: true
+}));
 app.use(express.json());
 app.use(express.static('public'));
 app.use(cookieParser());

@@ -992,6 +992,7 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
+                    credentials: 'include',
                     body: JSON.stringify({
                         price: 50,
                         description: 'Generación de canción IA'
@@ -1167,7 +1168,9 @@
                 attempts++;
                 
                 try {
-                    const statusResponse = await fetch(`https://musicapi-6gjf.onrender.com/song/${taskId}`);
+                    const statusResponse = await fetch(`https://musicapi-6gjf.onrender.com/song/${taskId}`, {
+                        credentials: 'include' // 👈 Agregado
+                    });
                     
                     if (statusResponse.ok) {
                         const songData = await statusResponse.json();
@@ -1293,7 +1296,10 @@
                 recentSongsContainer.innerHTML = '';
                 noRecentSongs.style.display = 'none';
 
-                const response = await fetch('https://musicapi-6gjf.onrender.com/recent-songs');
+                const response = await fetch('https://musicapi-6gjf.onrender.com/recent-songs', {
+                    credentials: 'include' // 👈 Agregado
+                });
+
                 const result = await response.json();
 
                 if (!response.ok) {
