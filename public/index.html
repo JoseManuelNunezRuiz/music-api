@@ -1071,7 +1071,7 @@
                     title: songTitle.value,
                     customMode: true,
                     instrumental: false,
-                    model: "V3_5",
+                    model: "V4_5PLUS",
                     negativeTags: negativeStyle.value || "",
                     vocalGender: document.getElementById('voice-gender').value === 'male' ? 'm' : 'f',
                     styleWeight: 0.65,
@@ -1115,28 +1115,28 @@
             try {
                 generationStatus.textContent = 'Iniciando generación de canción...';
                 
-                console.log('🎵 Enviando a Suno API:', songData);
-    
-                // Llamar directamente a Suno API como en tu ejemplo
-                const response = await fetch(`${API_CONFIG.baseUrl}/generate`, {
+                console.log('🎵 Enviando a backend:', songData);
+
+                // Llamar a TU BACKEND en lugar de Suno directamente
+                const response = await fetch('https://musicapi-6gjf.onrender.com/generate-song', {
                     method: 'POST',
                     headers: {
-                        'Authorization': `Bearer ${API_CONFIG.apiKey}`,
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify(songData)
+                    credentials: 'include', // Importante para enviar cookies
+                    body: JSON.stringify({ songData })
                 });
-    
+
                 if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`Error ${response.status}: ${errorText}`);
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || `Error ${response.status}`);
                 }
-    
+
                 const result = await response.json();
-                console.log('✅ Respuesta de Suno API:', result);
-    
-                const taskId = result?.task_id || result?.data?.taskId || result?.id;
-    
+                console.log('✅ Respuesta del backend:', result);
+
+                const taskId = result.taskId;
+
                 if (taskId) {
                     generationStatus.textContent = 'Canción en proceso de generación...';
                     
@@ -1146,9 +1146,9 @@
                     // Iniciar polling para verificar estado
                     startPolling(taskId);
                 } else {
-                    throw new Error('No se recibió task_id de Suno API');
+                    throw new Error('No se recibió taskId del backend');
                 }
-    
+
             } catch (error) {
                 console.error('❌ Error generando canción:', error);
                 generationStatus.textContent = `Error: ${error.message}`;
