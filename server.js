@@ -138,12 +138,20 @@ app.post('/callback', async (req, res) => {
         if (fetchError || !existingSong) {
             console.log(`🆕 Creando nueva canción desde callback: ${taskId}`);
             
+            updateData.id = taskId; // 🔑 CRÍTICO: Agregar el ID
             updateData.created_at = new Date().toISOString();
             updateData.expires_at = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
             updateData.title = updateData.title || 'Canción Generada';
             updateData.metadata.created_from_callback = true;
+            
+            // Calcular hash de propiedad para nueva canción
+            if (!userHash) {
+                userHash = calculateUserHash(sessionId, taskId);
+                updateData.user_hash = userHash;
+            }
         } else {
             console.log(`🔄 Actualizando canción existente: ${taskId}`);
+            updateData.id = existingSong.id; // 🔑 Asegurar que el ID existe
             // Preservar created_at y expires_at originales
             updateData.created_at = existingSong.created_at;
             updateData.expires_at = existingSong.expires_at;
