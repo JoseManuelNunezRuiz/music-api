@@ -1416,17 +1416,17 @@
             }
         });
     
-        // Función para generar título automático en modo simple
-        simplePrompt.addEventListener('blur', () => {
-            if (simpleModeBtn.classList.contains('active') && !songTitle.value.trim()) {
-                const promptText = simplePrompt.value.trim();
-                if (promptText) {
-                    const words = promptText.split(' ').slice(0, 5).join(' ');
-                    songTitle.value = words || "Mi Canción";
-                    titleCounter.textContent = songTitle.value.length;
-                }
-            }
-        });
+        // // Función para generar título automático en modo simple
+        // simplePrompt.addEventListener('blur', () => {
+        //     if (simpleModeBtn.classList.contains('active') && !songTitle.value.trim()) {
+        //         const promptText = simplePrompt.value.trim();
+        //         if (promptText) {
+        //             const words = promptText.split(' ').slice(0, 5).join(' ');
+        //             songTitle.value = words || "Mi Canción";
+        //             titleCounter.textContent = songTitle.value.length;
+        //         }
+        //     }
+        // });
     </script>
 </body>
 </html>

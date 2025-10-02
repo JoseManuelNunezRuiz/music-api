@@ -134,7 +134,7 @@ app.post('/callback', async (req, res) => {
                 console.log(`Audio URL guardada para ${taskId}`);
             }
             
-            if (sunoData.title && !existingSong.title) {
+            if (sunoData.title) {
                 updateData.title = sunoData.title;
             }
         }
