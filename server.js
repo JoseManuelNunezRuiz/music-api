@@ -236,31 +236,50 @@ app.post('/generate-song', async (req, res) => {
         }
 
         let sunoPayload = {};
-        
+
         if (songData.customMode) {
+            // MODO PERSONALIZADO
             sunoPayload = {
                 prompt: songData.styleDescription || "Canción personalizada",
                 title: songData.title || "Mi Canción",
                 tags: songData.style || "Various",
                 instrumental: songData.instrumental || false,
                 make_instrumental: songData.instrumental || false,
-                model: "V5",
+                model: songData.model || "V5", // o "V4_5PLUS"
                 wait_audio: false,
-                lyrics: songData.lyrics || "",
-                callBackUrl: process.env.CALLBACK_URL
+                customMode: true,
+                callBackUrl: process.env.CALLBACK_URL,
+        
+                // Avanzados (necesarios en modelos como V5)
+                vocalGender: songData.vocalGender || "m",
+                styleWeight: songData.styleWeight || 0.65,
+                weirdnessConstraint: songData.weirdnessConstraint || 0.65,
+                audioWeight: songData.audioWeight || 0.65,
+                negativeTags: songData.negativeTags || "",
+        
+                // Solo si hay letras
+                ...(songData.lyrics ? { lyrics: songData.lyrics } : {})
             };
-        } else {
+        }else {
+            // MODO SIMPLE
             sunoPayload = {
                 prompt: songData.prompt || "Canción generada",
                 title: songData.title || "Mi Canción",
                 tags: "Various",
                 instrumental: songData.instrumental || false,
                 make_instrumental: songData.instrumental || false,
-                model: "V5",
+                model: songData.model || "V5", // o "V4_5PLUS"
                 wait_audio: false,
-                callBackUrl: process.env.CALLBACK_URL
+                customMode: false,
+                callBackUrl: process.env.CALLBACK_URL,
+        
+                // Avanzados (aunque sea simple, el modelo V5 lo requiere)
+                vocalGender: songData.vocalGender || "m",
+                styleWeight: songData.styleWeight || 0.65,
+                weirdnessConstraint: songData.weirdnessConstraint || 0.65,
+                audioWeight: songData.audioWeight || 0.65
             };
-        }
+        }        
 
         console.log('Enviando a Suno API...');
 
