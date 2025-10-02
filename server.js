@@ -244,7 +244,7 @@ app.post('/generate-song', async (req, res) => {
                 tags: songData.style || "Various",
                 instrumental: songData.instrumental || false,
                 make_instrumental: songData.instrumental || false,
-                model: "chirp-v3-5",
+                model: "V5",
                 wait_audio: false,
                 lyrics: songData.lyrics || "",
                 callBackUrl: process.env.CALLBACK_URL
@@ -256,7 +256,7 @@ app.post('/generate-song', async (req, res) => {
                 tags: "Various",
                 instrumental: songData.instrumental || false,
                 make_instrumental: songData.instrumental || false,
-                model: "chirp-v3-5",
+                model: "V5",
                 wait_audio: false,
                 callBackUrl: process.env.CALLBACK_URL
             };
