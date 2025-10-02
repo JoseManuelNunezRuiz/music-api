@@ -828,21 +828,6 @@
             </button>
         </div>
 
-        <!-- SECCIÓN DE CANCIONES RECIENTES -->
-        <div class="card" id="recent-songs-section" style="display: none;">
-            <h2 style="text-align: center; margin-bottom: 25px; color: var(--text-primary);">Tus Canciones Recientes</h2>
-            <div id="recent-songs-container">
-                <!-- Las canciones se cargarán aquí dinámicamente -->
-            </div>
-            <div id="no-recent-songs" style="text-align: center; padding: 40px 20px; color: var(--text-muted); display: none;">
-                <p>No tienes canciones generadas en las últimas 48 horas.</p>
-            </div>
-            <div id="recent-songs-loading" style="text-align: center; padding: 20px;">
-                <div class="spinner" style="width: 30px; height: 30px; margin: 0 auto;"></div>
-                <p style="color: var(--text-muted); margin-top: 10px;">Cargando canciones recientes...</p>
-            </div>
-        </div>
-
         <!-- PASO 3: GENERACIÓN -->
         <div class="card payment-step" id="generation-step">
             <h2 style="text-align: center; margin-bottom: 30px; color: var(--text-primary);">Generando tu Canción</h2>
@@ -862,6 +847,21 @@
         <div id="results" class="results">
             <h2>Tu canción generada</h2>
             <div id="song-container"></div>
+        </div>
+        
+        <!-- SECCIÓN DE CANCIONES RECIENTES -->
+        <div class="card" id="recent-songs-section" style="display: none;">
+            <h2 style="text-align: center; margin-bottom: 25px; color: var(--text-primary);">Tus Canciones Recientes</h2>
+            <div id="recent-songs-container">
+                <!-- Las canciones se cargarán aquí dinámicamente -->
+            </div>
+            <div id="no-recent-songs" style="text-align: center; padding: 40px 20px; color: var(--text-muted); display: none;">
+                <p>No tienes canciones generadas en las últimas 48 horas.</p>
+            </div>
+            <div id="recent-songs-loading" style="text-align: center; padding: 20px;">
+                <div class="spinner" style="width: 30px; height: 30px; margin: 0 auto;"></div>
+                <p style="color: var(--text-muted); margin-top: 10px;">Cargando canciones recientes...</p>
+            </div>
         </div>
     </div>
 
