@@ -309,7 +309,6 @@ app.post('/generate-song', async (req, res) => {
             const songRecord = {
                 id: sunoTaskId,
                 status: 'generating',
-                payment_status: 'approved',
                 title: songData.title || 'Canción en generación',
                 created_at: new Date().toISOString(),
                 expires_at: expiresAt.toISOString(),
