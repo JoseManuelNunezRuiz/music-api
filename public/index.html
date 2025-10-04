@@ -671,7 +671,7 @@
         }
 
         .recent-song-time::before {
-            content: '🕒';
+            content: '';
             font-size: 0.8rem;
         }
 
@@ -1339,8 +1339,7 @@
 
             songDiv.innerHTML = `
                 <h3 class="recent-song-title">${song.title || 'Mi Canción'}</h3>
-                <div class="recent-song-time">
-                </div>
+                <div class="recent-song-time"></div>
                 <div class="recent-song-actions">
                     <a href="${song.audio_url}" class="recent-song-btn recent-song-play" target="_blank">
                         ▶ Escuchar
