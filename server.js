@@ -237,50 +237,58 @@ app.post('/generate-song', async (req, res) => {
 
         let sunoPayload = {};
 
+        // DENTRO DE /generate-song, REEMPLAZA LA SECCIÓN DE MODO PERSONALIZADO:
+
         if (songData.customMode) {
-            // MODO PERSONALIZADO
+            // MODO PERSONALIZADO CORREGIDO
             sunoPayload = {
-                prompt: songData.styleDescription || "Canción personalizada",
-                title: songData.title || "Mi Canción",
-                tags: songData.style || "Various",
-                instrumental: songData.instrumental || false,
-                make_instrumental: songData.instrumental || false,
-                model: songData.model || "V5", // o "V4_5PLUS"
-                wait_audio: false,
                 customMode: true,
+                model: songData.model || "V5",
+                wait_audio: false,
                 callBackUrl: process.env.CALLBACK_URL,
-        
-                // Avanzados (necesarios en modelos como V5)
+                
+                // 🎵 CAMPOS OBLIGATORIOS EN CUSTOM MODE
+                title: songData.title || "Mi Canción",
+                style: songData.styleDescription || "Various", // ✅ Ahora usa styleDescription
+                
+                // 📝 LETRAS (prompt) - SOLO si no es instrumental
+                ...(songData.lyrics && songData.lyrics.trim() ? { 
+                    prompt: songData.lyrics,  // ✅ Las letras van en "prompt"
+                    instrumental: false 
+                } : { 
+                    instrumental: true  // Sin letras = instrumental
+                }),
+                
+                // 🎛️ PARÁMETROS AVANZADOS (requeridos en V5)
                 vocalGender: songData.vocalGender || "m",
                 styleWeight: songData.styleWeight || 0.65,
                 weirdnessConstraint: songData.weirdnessConstraint || 0.65,
                 audioWeight: songData.audioWeight || 0.65,
-                negativeTags: songData.negativeTags || "",
-        
-                // Solo si hay letras
-                ...(songData.lyrics ? { lyrics: songData.lyrics } : {})
+                
+                // 🚫 ESTILOS A EVITAR (opcional)
+                ...(songData.negativeTags ? { negativeTags: songData.negativeTags } : {})
             };
-        }else {
-            // MODO SIMPLE
+        } else {
+            // MODO SIMPLE (este ya estaba bien, pero lo optimizo)
             sunoPayload = {
-                prompt: songData.prompt || "Canción generada",
-                title: songData.title || "Mi Canción",
-                tags: "Various",
-                instrumental: songData.instrumental || false,
-                make_instrumental: songData.instrumental || false,
-                model: songData.model || "V5", // o "V4_5PLUS"
-                wait_audio: false,
                 customMode: false,
+                model: songData.model || "V5",
+                wait_audio: false,
                 callBackUrl: process.env.CALLBACK_URL,
-        
-                // Avanzados (aunque sea simple, el modelo V5 lo requiere)
+                
+                // 💡 EN MODO SIMPLE: solo prompt es obligatorio
+                prompt: songData.prompt || "Canción generada",
+                instrumental: songData.instrumental || false,
+                
+                // 🎛️ Parámetros avanzados (V5 los requiere siempre)
                 vocalGender: songData.vocalGender || "m",
                 styleWeight: songData.styleWeight || 0.65,
                 weirdnessConstraint: songData.weirdnessConstraint || 0.65,
                 audioWeight: songData.audioWeight || 0.65
             };
-        }        
+        }
 
+        console.log('📤 Payload enviado a Suno:', JSON.stringify(sunoPayload, null, 2));  
         console.log('Enviando a Suno API...');
 
         const response = await fetch(`${sunoApiUrl}/generate`, {

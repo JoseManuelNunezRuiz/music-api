@@ -1047,43 +1047,50 @@
             }
         }
     
+        // REEMPLAZA LA FUNCIÓN prepareSongData() EN TU HTML
+
         function prepareSongData() {
             if (simpleModeBtn.classList.contains('active')) {
-                // Modo Simple - exactamente como lo espera Suno API
+                // ✅ MODO SIMPLE - Solo prompt obligatorio
                 return {
-                    prompt: simplePrompt.value,
-                    style: "Various",
-                    title: songTitle.value || "Canción Generada",
                     customMode: false,
+                    prompt: simplePrompt.value.trim(),
                     instrumental: document.getElementById('instrumental').checked,
+                    title: songTitle.value.trim() || "Canción Generada",
                     model: "V5",
+                    
+                    // Parámetros avanzados (V5 los requiere)
                     vocalGender: "m",
                     styleWeight: 0.65,
                     weirdnessConstraint: 0.65,
-                    audioWeight: 0.65,
-                    callBackUrl: API_CONFIG.callbackUrl
+                    audioWeight: 0.65
                 };
             } else {
-                // Modo Personalizado - exactamente como lo espera Suno API
+                // ✅ MODO PERSONALIZADO - style y title obligatorios
                 const data = {
-                    prompt: styleDescription.value,
-                    style: styleDescription.value.split(',')[0] || "Various",
-                    title: songTitle.value,
                     customMode: true,
-                    instrumental: false,
-                    model: "V5",
-                    negativeTags: negativeStyle.value || "",
+                    
+                    // 📝 CAMPOS OBLIGATORIOS
+                    title: songTitle.value.trim() || "Mi Canción",
+                    styleDescription: styleDescription.value.trim() || "Various",
+                    
+                    // 🎤 VOZ
                     vocalGender: document.getElementById('voice-gender').value === 'male' ? 'm' : 'f',
+                    
+                    // 🎵 LETRAS (opcional)
+                    lyrics: customLyrics.value.trim() || "",
+                    
+                    // 🚫 ESTILOS A EVITAR (opcional)
+                    negativeTags: negativeStyle.value.trim() || "",
+                    
+                    // 🎛️ PARÁMETROS AVANZADOS
+                    model: "V5",
                     styleWeight: 0.65,
                     weirdnessConstraint: 0.65,
-                    audioWeight: 0.65,
-                    callBackUrl: API_CONFIG.callbackUrl
+                    audioWeight: 0.65
                 };
-    
-                if (customLyrics.value.trim()) {
-                    data.lyrics = customLyrics.value;
-                }
-    
+
+                console.log('📤 Datos preparados (Custom Mode):', data);
                 return data;
             }
         }
